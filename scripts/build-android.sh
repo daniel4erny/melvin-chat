@@ -21,8 +21,11 @@ bunx tauri android init --ci
 bunx tauri android build --debug --apk --target aarch64 --ci
 
 cd ..
+VERSION="$(grep -m1 '"version"' desktop/src-tauri/tauri.conf.json | sed -E 's/.*"version" *: *"([^"]+)".*/\1/')"
+rm -rf .releases/android
 mkdir -p .releases/android
-find desktop/src-tauri/gen/android -name '*.apk' -exec cp {} .releases/android/ \;
+APK="$(find desktop/src-tauri/gen/android -name '*.apk' | head -1)"
+cp "$APK" ".releases/android/melvin-${VERSION}-arm64-debug.apk"
 (cd .releases/android && sha256sum * > SHA256SUMS)
 
 echo "Android builds:"
