@@ -5,11 +5,13 @@ import { Modal, Spinner } from "./ui";
 export default function PollModal({
   open,
   channelName,
+  dm,
   onClose,
   onCreate,
 }: {
   open: boolean;
   channelName: string;
+  dm?: boolean;
   onClose: () => void;
   onCreate: (question: string, options: string[], multi: boolean, anonymous: boolean) => Promise<void>;
 }) {
@@ -61,7 +63,7 @@ export default function PollModal({
       open={open}
       onClose={onClose}
       title="Nová anketa"
-      subtitle={`V kanálu #${channelName}`}
+      subtitle={dm ? `Konverzace s ${channelName}` : `V kanálu #${channelName}`}
       footer={
         <>
           <button className="btn ghost" onClick={onClose}>

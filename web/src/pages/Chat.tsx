@@ -52,11 +52,17 @@ function previewLabel(channel: Channel): string {
   return `${last.displayName}: zpráva`;
 }
 
+function channelTitle(channel?: Channel | null): string {
+  if (!channel) return "";
+  if (channel.visibility === "direct") return channel.peer?.displayName ?? "Přímá zpráva";
+  return channel.name;
+}
+
 function notifyMessage(message: Message, channel?: Channel) {
   if (!("Notification" in window) || Notification.permission !== "granted") return;
   try {
     const body = message.text || (message.attachment ? `Příloha: ${message.attachment.name}` : "Nová zpráva");
-    const note = new Notification(`#${channel?.name ?? "kanál"} · ${message.user.displayName}`, {
+    const note = new Notification(`${channel?.visibility === "direct" ? "" : "#"}${channelTitle(channel) || "kanál"} · ${message.user.displayName}`, {
       body: body.slice(0, 160),
       tag: `melvin-${message.channelId}`,
     });
@@ -642,7 +648,13 @@ export default function Chat() {
         if (mentionMessage && mentionMessage.user.id !== me.id) {
           const channel = channelsRef.current.find((c) => c.id === mentionMessage.channelId);
           toast.info(
-            `${mentionMessage.user.displayName} tě zmínil${channel ? ` v #${channel.name}` : ""}`,
+            `${mentionMessage.user.displayName} tě zmínil${
+              channel
+                ? channel.visibility === "direct"
+                  ? " v přímé zprávě"
+                  : ` v #${channel.name}`
+                : ""
+            }`,
           );
           if (userRef.current.settings.messageSound) playPing(userRef.current.settings);
         }
@@ -723,6 +735,11 @@ export default function Chat() {
   }, [refreshChannels]);
 
   const activeChannel = channels.find((c) => c.id === activeId) ?? null;
+  const isDM = activeChannel?.visibility === "direct";
+  const dmPeer = activeChannel?.peer;
+  const activeLabel = channelTitle(activeChannel);
+  const textChannels = channels.filter((c) => c.visibility !== "direct");
+  const dmChannels = channels.filter((c) => c.visibility === "direct");
   const typingNames = [...typing.values()].map((t) => t.name);
   const activeRecordings = (activeId !== null ? recordingUsers[activeId] : undefined) ?? {};
   const recordingNames = Object.entries(activeRecordings)
@@ -730,12 +747,15 @@ export default function Chat() {
     .map(([, entry]) => entry.name);
   const inCallHere = call.state?.channelId === activeId;
   const callChannelName = call.state
-    ? (channels.find((c) => c.id === call.state?.channelId)?.name ?? "")
+    ? channelTitle(channels.find((c) => c.id === call.state?.channelId))
     : "";
   const ringChannel = ring ? channels.find((c) => c.id === ring.channelId) : null;
   const onlineMembers = new Set(online);
-  const canEdit = Boolean(activeChannel && (activeChannel.ownerId === me.id || me.admin));
+  const canEdit = Boolean(
+    activeChannel && !isDM && (activeChannel.ownerId === me.id || me.admin),
+  );
   const canPin = canEdit;
+  const dmOnline = Boolean(dmPeer && online.has(dmPeer.id));
   const activeCallPeers = (activeId !== null ? callRoster[activeId] : undefined) ?? [];
   const activeCallIds = new Set(activeCallPeers.map((peer) => peer.id));
   const activeRecordingIds = new Set(Object.keys(activeRecordings).map(Number));
@@ -750,6 +770,21 @@ export default function Chat() {
       await refreshChannels();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Odejít se nepodařilo");
+    }
+  };
+
+  const startDM = async (target: User) => {
+    try {
+      const res = await api<{ channel: Channel }>("/api/dms", {
+        method: "POST",
+        body: { userId: target.id },
+      });
+      await refreshChannels(res.channel.id);
+      setProfileUser(null);
+      setMessagesUser(null);
+      setSidebarOpen(false);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Konverzaci se nepodařilo otevřít");
     }
   };
 
@@ -782,8 +817,64 @@ export default function Chat() {
           <span className={`connDot ${wsStatus}`} title={`Připojení: ${wsStatus}`} />
         </div>
 
+        <div className="sidebarSection dmSection">
+          <span>Přímé zprávy · {dmChannels.length}</span>
+        </div>
+        <nav className="channelList dmList">
+          {dmChannels.map((channel) => {
+            const peers = callRoster[channel.id] ?? [];
+            const peer = channel.peer;
+            return (
+              <button
+                key={channel.id}
+                className={`channelItem dmItem${channel.id === activeId ? " active" : ""}`}
+                onClick={() => openChannel(channel.id)}
+              >
+                {peer ? (
+                  <Avatar
+                    name={peer.displayName}
+                    color={peer.avatarColor}
+                    avatarId={peer.avatarId}
+                    size={28}
+                    online={online.has(peer.id)}
+                  />
+                ) : (
+                  <span className="channelIcon">
+                    <Icon name="user" size={17} />
+                  </span>
+                )}
+                <span className="channelInfo">
+                  <span className="channelName">{peer?.displayName ?? "Přímá zpráva"}</span>
+                  <span className="channelPreview">
+                    {peers.length > 0 ? (
+                      <>
+                        <Icon name="phone" size={11} /> v hovoru
+                      </>
+                    ) : (
+                      previewLabel(channel)
+                    )}
+                  </span>
+                </span>
+                {peers.length > 0 && !channel.unread && (
+                  <span className="callMini" title="V hovoru">
+                    <Icon name="phone" size={11} />
+                  </span>
+                )}
+                {channel.unread > 0 && (
+                  <span className="unreadBadge">{channel.unread > 99 ? "99+" : channel.unread}</span>
+                )}
+              </button>
+            );
+          })}
+          {!loadingChannels && dmChannels.length === 0 && (
+            <p className="sidebarEmpty dmEmpty">
+              Otevři profil člena a napiš mu zprávu.
+            </p>
+          )}
+        </nav>
+
         <div className="sidebarSection">
-          <span>Kanály · {channels.length}</span>
+          <span>Kanály · {textChannels.length}</span>
           <button
             className="iconBtn"
             title="Nový kanál"
@@ -795,7 +886,7 @@ export default function Chat() {
         </div>
 
         <nav className="channelList">
-          {channels.map((channel) => {
+          {textChannels.map((channel) => {
             const peers = callRoster[channel.id] ?? [];
             const isRecording = Object.keys(recordingUsers[channel.id] ?? {}).some((id) => Number(id) !== me.id);
             return (
@@ -833,7 +924,7 @@ export default function Chat() {
               </button>
             );
           })}
-          {!loadingChannels && channels.length === 0 && (
+          {!loadingChannels && textChannels.length === 0 && (
             <p className="sidebarEmpty">
               Zatím žádné kanály.
               <br />
@@ -846,6 +937,7 @@ export default function Chat() {
             </div>
           )}
         </nav>
+
 
         <div className="sidebarSpacer" />
 
@@ -880,17 +972,35 @@ export default function Chat() {
           </button>
 
           {activeChannel ? (
-            <div className="headerChannel">
+            <div className={`headerChannel${isDM ? " dmHeader" : ""}`}>
               <span className="headerChannelIcon">
-                <Icon name={activeChannel.visibility === "private" ? "lock" : "hash"} size={20} />
+                {isDM && dmPeer ? (
+                  <Avatar
+                    name={dmPeer.displayName}
+                    color={dmPeer.avatarColor}
+                    avatarId={dmPeer.avatarId}
+                    size={28}
+                    online={dmOnline}
+                  />
+                ) : (
+                  <Icon name={activeChannel.visibility === "private" ? "lock" : "hash"} size={20} />
+                )}
               </span>
               <div className="headerChannelText">
-                <h1>{activeChannel.name}</h1>
+                <h1>{activeLabel}</h1>
                 <p>
-                  {activeChannel.topic ||
-                    (activeChannel.visibility === "private" ? "Soukromý kanál" : "Veřejný kanál")}
-                  <span className="headerDot">·</span>
-                  {onlineCount} online
+                  {isDM
+                    ? dmOnline
+                      ? "online"
+                      : "offline"
+                    : activeChannel.topic ||
+                      (activeChannel.visibility === "private" ? "Soukromý kanál" : "Veřejný kanál")}
+                  {!isDM && (
+                    <>
+                      <span className="headerDot">·</span>
+                      {onlineCount} online
+                    </>
+                  )}
                   {activeCallPeers.length > 0 && (
                     <>
                       <span className="headerDot">·</span>
@@ -933,7 +1043,7 @@ export default function Chat() {
               </button>
             )}
 
-            {activeChannel && (
+            {activeChannel && !isDM && (
               <button
                 className={`iconBtn pinHeaderBtn${pinsOpen ? " active" : ""}`}
                 title="Připnuté zprávy"
@@ -945,7 +1055,7 @@ export default function Chat() {
               </button>
             )}
 
-            {activeChannel && (
+            {activeChannel && !isDM && (
               <button
                 className={`iconBtn memberBtn${membersRail && !isCompact ? " active" : ""}`}
                 title="Členové kanálu"
@@ -1000,7 +1110,11 @@ export default function Chat() {
                 </span>
                 <div className="ringText">
                   <strong>{ring.from.displayName} volá</strong>
-                  <span>v kanálu #{ringChannel.name}</span>
+                  <span>
+                    {ringChannel.visibility === "direct"
+                      ? "v přímém hovoru"
+                      : `v kanálu #${ringChannel.name}`}
+                  </span>
                 </div>
                 <button
                   className="btn primary tiny"
@@ -1021,7 +1135,8 @@ export default function Chat() {
             {searchOpen && activeChannel && (
               <SearchPanel
                 channelId={activeChannel.id}
-                channelName={activeChannel.name}
+                channelName={activeLabel}
+                dm={isDM}
                 onJump={(id) => void jumpToMessage(id)}
                 onClose={() => setSearchOpen(false)}
               />
@@ -1034,7 +1149,8 @@ export default function Chat() {
                     messages={messages}
                     me={me}
                     channelId={activeChannel.id}
-                    channelName={activeChannel.name}
+                    channelName={activeLabel}
+                    dm={isDM}
                     loading={loadingMessages}
                     hasMore={hasMore}
                     loadingOlder={loadingOlder}
@@ -1065,7 +1181,8 @@ export default function Chat() {
                   )}
                   <Composer
                     channelId={activeChannel.id}
-                    channelName={activeChannel.name}
+                    channelName={activeLabel}
+                    dm={isDM}
                     replyTo={replyTo}
                     maxUploadMB={config.maxUploadMB}
                     enterToSend={me.settings.enterToSend}
@@ -1110,7 +1227,7 @@ export default function Chat() {
             </div>
           </div>
 
-          {!isCompact && membersRail && activeChannel && (
+          {!isCompact && !isDM && membersRail && activeChannel && (
             <aside className="memberRail">
               <header className="memberRailHead">
                 <div>
@@ -1151,7 +1268,12 @@ export default function Chat() {
       </main>
 
       {call.state && (
-        <CallBar call={callForUi} channelName={callChannelName} peers={call.state.peers} />
+        <CallBar
+          call={callForUi}
+          channelName={callChannelName}
+          dm={channels.find((c) => c.id === call.state?.channelId)?.visibility === "direct"}
+          peers={call.state.peers}
+        />
       )}
 
       {membersOpen && activeChannel && (
@@ -1235,7 +1357,8 @@ export default function Chat() {
       {pollOpen && activeChannel && (
         <PollModal
           open
-          channelName={activeChannel.name}
+          channelName={activeLabel}
+          dm={isDM}
           onClose={() => setPollOpen(false)}
           onCreate={createPoll}
         />
@@ -1282,6 +1405,7 @@ export default function Chat() {
             setProfileUser(null);
             setMessagesUser(target);
           }}
+          onMessage={(target) => void startDM(target)}
           onOpenChannel={openChannel}
         />
       )}

@@ -96,12 +96,14 @@ export type Channel = {
   id: number;
   name: string;
   topic: string;
-  visibility: "public" | "private";
+  visibility: "public" | "private" | "direct";
   ownerId: number;
   createdAt: number;
   role: "owner" | "member";
   memberCount: number;
   unread: number;
+  dm?: boolean;
+  peer?: User;
   lastMessage?: MessagePreview;
 };
 

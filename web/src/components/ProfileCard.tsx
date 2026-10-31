@@ -21,6 +21,7 @@ export default function ProfileCard({
   onUpdated,
   onEditSelf,
   onViewMessages,
+  onMessage,
   onOpenChannel,
 }: {
   user: User;
@@ -30,6 +31,7 @@ export default function ProfileCard({
   onUpdated: (user: User) => void;
   onEditSelf: () => void;
   onViewMessages?: (user: User) => void;
+  onMessage?: (user: User) => void;
   onOpenChannel?: (channelId: number) => void;
 }) {
   const [profile, setProfile] = useState<UserProfileResponse | null>(null);
@@ -184,11 +186,18 @@ export default function ProfileCard({
             </div>
           )}
 
-          {!self && onViewMessages && (
+          {!self && (onMessage || onViewMessages) && (
             <div className="profileQuickActions">
-              <button className="btn primary" onClick={() => onViewMessages(shown)}>
-                <Icon name="search" size={16} /> Zobrazit zprávy
-              </button>
+              {onMessage && (
+                <button className="btn primary" onClick={() => onMessage(shown)}>
+                  <Icon name="send" size={16} /> Napsat zprávu
+                </button>
+              )}
+              {onViewMessages && (
+                <button className="btn ghost" onClick={() => onViewMessages(shown)}>
+                  <Icon name="search" size={16} /> Zobrazit zprávy
+                </button>
+              )}
             </div>
           )}
 

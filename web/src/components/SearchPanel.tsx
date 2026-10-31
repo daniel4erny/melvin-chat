@@ -8,11 +8,13 @@ import { Spinner } from "./ui";
 export default function SearchPanel({
   channelId,
   channelName,
+  dm,
   onJump,
   onClose,
 }: {
   channelId: number;
   channelName: string;
+  dm?: boolean;
   onJump: (messageId: number) => void;
   onClose: () => void;
 }) {
@@ -64,7 +66,7 @@ export default function SearchPanel({
           ref={inputRef}
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder={`Hledat v #${channelName}`}
+          placeholder={dm ? `Hledat u ${channelName}` : `Hledat v #${channelName}`}
           maxLength={120}
           spellCheck={false}
         />

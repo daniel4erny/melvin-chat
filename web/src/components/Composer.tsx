@@ -34,6 +34,7 @@ function namePastedFile(file: File): File {
 export default function Composer({
   channelId,
   channelName,
+  dm = false,
   replyTo,
   maxUploadMB,
   enterToSend,
@@ -46,6 +47,7 @@ export default function Composer({
 }: {
   channelId: number;
   channelName: string;
+  dm?: boolean;
   replyTo: Message | null;
   maxUploadMB: number;
   enterToSend: boolean;
@@ -554,7 +556,7 @@ export default function Composer({
             ref={textarea}
             rows={1}
             value={text}
-            placeholder={`Napiš zprávu do #${channelName}`}
+            placeholder={dm ? `Napiš zprávu pro ${channelName}` : `Napiš zprávu do #${channelName}`}
             onChange={(e) => onTextChange(e.target.value, e.target.selectionStart)}
             onKeyDown={handleKeyDown}
             onBlur={() => setMention(null)}

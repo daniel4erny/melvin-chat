@@ -5597,3 +5597,44 @@ body {
 [data-theme="light"] .sidebar {
   box-shadow: 1px 0 0 rgba(0, 0, 0, 0.06);
 }
+
+/* ---------- direct messages ---------- */
+
+.dmSection {
+  margin-top: 6px;
+}
+
+.dmList {
+  flex: 0 1 auto;
+  max-height: 34vh;
+  padding-bottom: 6px;
+}
+
+.dmItem {
+  gap: 9px;
+  padding-top: 3px;
+  padding-bottom: 3px;
+}
+
+.dmItem .channelInfo {
+  gap: 1px;
+}
+
+.dmItem .channelName {
+  font-size: 0.88rem;
+  font-weight: 500;
+}
+
+.dmItem .avatar {
+  flex-shrink: 0;
+}
+
+.dmEmpty {
+  font-size: 0.74rem;
+}
+
+.dmHeader .headerChannelIcon {
+  display: flex;
+  align-items: center;
+}
+

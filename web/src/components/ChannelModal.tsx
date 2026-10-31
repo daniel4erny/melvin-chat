@@ -39,7 +39,7 @@ export default function ChannelModal({
     if (mode === "edit" && channel) {
       setName(channel.name);
       setTopic(channel.topic);
-      setVisibility(channel.visibility);
+      setVisibility(channel.visibility === "private" ? "private" : "public");
       setSelected(new Set());
     } else {
       setName("");

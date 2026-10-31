@@ -10,6 +10,7 @@ export default function MessageList({
   me,
   channelId,
   channelName,
+  dm,
   loading,
   hasMore,
   loadingOlder,
@@ -32,6 +33,7 @@ export default function MessageList({
   me: User;
   channelId: number;
   channelName: string;
+  dm?: boolean;
   loading: boolean;
   hasMore: boolean;
   loadingOlder: boolean;
@@ -147,7 +149,8 @@ export default function MessageList({
       )}
       {!hasMore && messages.length > 0 && (
         <div className="historyStart">
-          <Icon name="hash" size={15} /> Začátek kanálu <strong>#{channelName}</strong>
+          <Icon name={dm ? "user" : "hash"} size={15} />
+          {dm ? "Začátek konverzace" : "Začátek kanálu"} <strong>{dm ? channelName : `#${channelName}`}</strong>
         </div>
       )}
       {loading ? (
@@ -157,10 +160,12 @@ export default function MessageList({
       ) : messages.length === 0 ? (
         <div className="emptyChat">
           <div className="emptyChatIcon">
-            <Icon name="hash" size={30} />
+            <Icon name={dm ? "user" : "hash"} size={30} />
           </div>
-          <h3>Vítej v #{channelName}</h3>
-          <p>Zatím tu nic není. Napiš první zprávu, pošli hlasovku nebo založ anketu.</p>
+          <h3>{dm ? `Konverzace s ${channelName}` : `Vítej v #${channelName}`}</h3>
+          <p>
+            Zatím tu nic není. Napiš první zprávu, pošli hlasovku nebo založ anketu.
+          </p>
         </div>
       ) : (
         items

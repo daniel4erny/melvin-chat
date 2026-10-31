@@ -93,10 +93,12 @@ function RemoteTile({
 export default function CallBar({
   call,
   channelName,
+  dm,
   peers,
 }: {
   call: CallController;
   channelName: string;
+  dm?: boolean;
   peers: Record<number, CallPeer>;
 }) {
   const { user } = useAuth();
@@ -191,7 +193,7 @@ export default function CallBar({
       <div className="callDock">
         <span className="callDockPulse" />
         <div className="callDockInfo">
-          <strong>#{channelName}</strong>
+          <strong>{dm ? channelName : `#${channelName}`}</strong>
           <span>
             {formatDuration(duration)} · {count} {count === 1 ? "účastník" : count < 5 ? "účastníci" : "účastníků"}
           </span>
@@ -232,7 +234,7 @@ export default function CallBar({
         <header className="callStageHead">
           <span className="callDockPulse" />
           <div>
-            <strong>Hovor · #{channelName}</strong>
+            <strong>{dm ? `Hovor · ${channelName}` : `Hovor · #${channelName}`}</strong>
             <span>
               {formatDuration(duration)} · {count} {count === 1 ? "účastník" : count < 5 ? "účastníci" : "účastníků"}
             </span>
