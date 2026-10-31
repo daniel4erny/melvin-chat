@@ -1,0 +1,10 @@
+api
+server
+*.db
+*.db-shm
+*.db-wal
+uploads
+data
+.env
+.env.*
+.git

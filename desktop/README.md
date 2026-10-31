@@ -59,7 +59,28 @@ bun run ios:build
 For a plain `http://` server on iOS, add `NSAppTransportSecurity` →
 `NSAllowsArbitraryLoads` to the generated `Info.plist`. HTTPS is recommended.
 
-## Notes
+## Hotové buildy
+
+Lokální buildy se ukládají do `.releases/` v kořeni repa (je v `.gitignore`,
+takže se nedostanou do gitu):
+
+- `.releases/linux/` — `.deb`, `.rpm`, `.AppImage`
+- `.releases/android/` — debug `.apk`
+- `.releases/windows/`, `.releases/macos/`, `.releases/ios/` — z GitHub Actions
+
+Skripty:
+
+```bash
+scripts/build-linux.sh      # Linux balíčky
+scripts/build-android.sh    # Android APK (potřebuje SDK + NDK)
+```
+
+Windows, macOS a iOS se buildí na GitHub Actions (`.github/workflows/apps.yml`)
+přes **Actions → Build apps → Run workflow**. iOS runner vytvoří nepodepsanou
+simulátorovou `.app`; instalace na skutečný iPhone vyžaduje Apple Developer
+účet, signing certifikát a provisioning profile.
+
+## Poznámky
 
 - Calls need microphone/camera permission. Tauri's WebView asks for it the
   first time; on Android the generated manifest already includes the
