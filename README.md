@@ -40,6 +40,21 @@ v prohlížeči — `getUserMedia` funguje jen v secure contextu (nebo na
 Data (SQLite + nahrané soubory) jsou v Docker volume `melvin_data`.
 Zálohuj celý volume, ne jen databázi.
 
+### Nasazení v Coolify
+
+- **Docker Compose location:** `/docker-compose.yaml` (přesně tak se soubor
+  v repu jmenuje)
+- **Base directory:** `/`
+- **Domain:** přidej doménu a namíř ji na službu **`web`**, port **`8000`**
+- **Environment Variables:** `REGISTRATION_CODE`, `MAX_UPLOAD_MB`,
+  `ICE_SERVERS`, případně `VERSION`
+- Soubor `docker-compose.override.yml` je jen pro lokální vývoj. Coolify
+  nasazuje `docker-compose.yaml` sám, takže si web nepublikuje port na hostu
+  a nedojde ke kolizi s Coolify na portu 8000.
+
+Pokud deploy spadne, otevři **Deployment Logs** — chyba z `git clone` je něco
+jiného než chyba z `docker compose build`.
+
 ## První kroky
 
 1. Otevři web, klikni na **Vytvořit účet**.

@@ -1,5 +1,9 @@
-# local dev only: docker compose merges this automatically, coolify deploys
-# docker-compose.yml alone and routes traffic through its own proxy
+# Local development only. Docker Compose merges this file automatically with
+# docker-compose.yaml, so `docker compose up -d --build` publishes the web on
+# http://127.0.0.1:8000.
+#
+# Coolify deploys docker-compose.yaml explicitly and does not use this file,
+# so its own proxy can route the domain to web:8000 without a port clash.
 services:
   web:
     ports:

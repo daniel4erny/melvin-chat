@@ -2,8 +2,10 @@ services:
   web:
     build: ./web
     restart: unless-stopped
-    ports:
-      - "127.0.0.1:8000:8000"
+    # No host port here on purpose: Coolify's proxy reaches web:8000 over the
+    # Docker network. For local dev docker-compose.override.yml publishes it.
+    expose:
+      - "8000"
     environment:
       API_URL: http://api:8000
       PORT: "8000"
