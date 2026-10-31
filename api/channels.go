@@ -3,6 +3,7 @@ package main
 import (
 	"database/sql"
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -26,6 +27,8 @@ type Channel struct {
 	Role        string          `json:"role"`
 	MemberCount int             `json:"memberCount"`
 	Unread      int             `json:"unread"`
+	DM          bool            `json:"dm"`
+	Peer        *User           `json:"peer,omitempty"`
 	LastMessage *MessagePreview `json:"lastMessage,omitempty"`
 }
 
@@ -66,8 +69,64 @@ func (d *DB) ChannelByID(id, viewerID int64) (Channel, error) {
 			id, lastRead, viewerID,
 		).Scan(&c.Unread)
 	}
+	c.DM = c.Visibility == "direct"
+	if c.DM && viewerID > 0 {
+		c.Peer = d.dmPeer(id, viewerID)
+	}
 	c.LastMessage = d.lastPreview(id)
 	return c, nil
+}
+
+// dmPeer returns the other participant of a direct conversation.
+func (d *DB) dmPeer(channelID, viewerID int64) *User {
+	u, err := scanUser(d.sql.QueryRow(
+		"SELECT "+userCols+" FROM channel_members cm JOIN users u ON u.id = cm.user_id WHERE cm.channel_id = ? AND cm.user_id <> ? LIMIT 1",
+		channelID, viewerID,
+	))
+	if err != nil {
+		return nil
+	}
+	return &u
+}
+
+// FindOrCreateDM returns the one-to-one conversation between two users,
+// creating it on first use. The hidden name keeps the pair unique.
+func (d *DB) FindOrCreateDM(userID, peerID int64) (Channel, error) {
+	if userID == peerID {
+		return Channel{}, errors.New("nemůžeš psát sám sobě")
+	}
+	lo, hi := userID, peerID
+	if lo > hi {
+		lo, hi = hi, lo
+	}
+	name := fmt.Sprintf("dm:%d:%d", lo, hi)
+	tx, err := d.sql.Begin()
+	if err != nil {
+		return Channel{}, err
+	}
+	defer tx.Rollback()
+	if _, err := tx.Exec(
+		"INSERT OR IGNORE INTO channels (name, topic, visibility, owner_id, created_at) VALUES (?, '', 'direct', ?, ?)",
+		name, userID, nowMS(),
+	); err != nil {
+		return Channel{}, err
+	}
+	var id int64
+	if err := tx.QueryRow("SELECT id FROM channels WHERE visibility = 'direct' AND name = ?", name).Scan(&id); err != nil {
+		return Channel{}, err
+	}
+	for _, uid := range []int64{userID, peerID} {
+		if _, err := tx.Exec(
+			"INSERT OR IGNORE INTO channel_members (channel_id, user_id, role, joined_at) VALUES (?, ?, 'member', ?)",
+			id, uid, nowMS(),
+		); err != nil {
+			return Channel{}, err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return Channel{}, err
+	}
+	return d.ChannelByID(id, userID)
 }
 
 func (d *DB) lastPreview(channelID int64) *MessagePreview {
@@ -106,6 +165,10 @@ func (d *DB) ListChannels(userID int64) ([]Channel, error) {
 		var lastRead int64
 		if err := rows.Scan(&c.ID, &c.Name, &c.Topic, &c.Visibility, &c.OwnerID, &c.CreatedAt, &c.Role, &lastRead, &c.MemberCount, &c.Unread); err != nil {
 			return nil, err
+		}
+		c.DM = c.Visibility == "direct"
+		if c.DM {
+			c.Peer = d.dmPeer(c.ID, userID)
 		}
 		c.LastMessage = d.lastPreview(c.ID)
 		channels = append(channels, c)
@@ -382,6 +445,10 @@ func (a *App) updateChannel(w http.ResponseWriter, r *http.Request, u User) {
 		writeErr(w, http.StatusForbidden, "Do tohoto kanálu nemáš přístup")
 		return
 	}
+	if existing, err := a.db.ChannelByID(id, u.ID); err == nil && existing.DM {
+		writeErr(w, http.StatusBadRequest, "Přímé konverzace nejde upravovat")
+		return
+	}
 	if role != "owner" && !u.Admin {
 		writeErr(w, http.StatusForbidden, "Kanál může upravit jen vlastník")
 		return
@@ -436,6 +503,10 @@ func (a *App) deleteChannel(w http.ResponseWriter, r *http.Request, u User) {
 	role, member, err := a.db.MemberRole(id, u.ID)
 	if err != nil || !member {
 		writeErr(w, http.StatusForbidden, "Do tohoto kanálu nemáš přístup")
+		return
+	}
+	if existing, err := a.db.ChannelByID(id, u.ID); err == nil && existing.DM {
+		writeErr(w, http.StatusBadRequest, "Přímé konverzace nejde mazat")
 		return
 	}
 	if role != "owner" && !u.Admin {
@@ -523,6 +594,36 @@ func (a *App) markRead(w http.ResponseWriter, r *http.Request, u User) {
 func (d *DB) RemoveMember(channelID, userID int64) error {
 	_, err := d.sql.Exec("DELETE FROM channel_members WHERE channel_id = ? AND user_id = ? AND role <> 'owner'", channelID, userID)
 	return err
+}
+
+func (a *App) createDM(w http.ResponseWriter, r *http.Request, u User) {
+	var in struct {
+		UserID int64 `json:"userId"`
+	}
+	if err := readJSON(r, &in); err != nil || in.UserID <= 0 {
+		writeErr(w, http.StatusBadRequest, "Neplatný uživatel")
+		return
+	}
+	if in.UserID == u.ID {
+		writeErr(w, http.StatusBadRequest, "Sám sobě psát nemůžeš")
+		return
+	}
+	target, err := a.db.UserByID(in.UserID)
+	if err != nil {
+		writeErr(w, http.StatusNotFound, "Uživatel neexistuje")
+		return
+	}
+	if target.Banned {
+		writeErr(w, http.StatusBadRequest, "Tomuto uživateli nejde napsat")
+		return
+	}
+	ch, err := a.db.FindOrCreateDM(u.ID, target.ID)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "Konverzaci se nepodařilo vytvořit")
+		return
+	}
+	a.notifyChannelsChanged(ch.ID)
+	writeJSON(w, http.StatusOK, map[string]any{"channel": ch})
 }
 
 func (a *App) notifyChannelsChanged(channelID int64) {

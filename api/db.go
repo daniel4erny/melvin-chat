@@ -152,6 +152,8 @@ CREATE TABLE IF NOT EXISTS channels (
 	created_at INTEGER NOT NULL
 );
 
+CREATE UNIQUE INDEX IF NOT EXISTS idx_channels_direct_name ON channels(name) WHERE visibility = 'direct';
+
 CREATE TABLE IF NOT EXISTS channel_members (
 	channel_id   INTEGER NOT NULL REFERENCES channels(id) ON DELETE CASCADE,
 	user_id      INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -598,6 +600,7 @@ func (d *DB) UserMessages(userID, viewerID int64, before int64, limit int) ([]Me
 	args = append(args, limit+1)
 	rows, err := d.sql.Query(`
 		SELECT m.id FROM messages m
+		JOIN channels c ON c.id = m.channel_id AND c.visibility <> 'direct'
 		JOIN channel_members target ON target.channel_id = m.channel_id AND target.user_id = ?
 		JOIN channel_members viewer ON viewer.channel_id = m.channel_id AND viewer.user_id = ?
 		WHERE m.deleted = 0`+beforeClause+`
@@ -656,7 +659,7 @@ func (d *DB) UserStats(userID, viewerID int64) (UserStats, error) {
 		return stats, err
 	}
 	if err := d.sql.QueryRow(
-		"SELECT COUNT(*) FROM channel_members WHERE user_id = ?", userID,
+		"SELECT COUNT(*) FROM channel_members cm JOIN channels c ON c.id = cm.channel_id WHERE cm.user_id = ? AND c.visibility <> 'direct'", userID,
 	).Scan(&stats.Channels); err != nil {
 		return stats, err
 	}
@@ -665,7 +668,7 @@ func (d *DB) UserStats(userID, viewerID int64) (UserStats, error) {
 		FROM channel_members mine
 		JOIN channel_members theirs ON theirs.channel_id = mine.channel_id AND theirs.user_id = ?
 		JOIN channels c ON c.id = mine.channel_id
-		WHERE mine.user_id = ?
+		WHERE mine.user_id = ? AND c.visibility <> 'direct'
 		ORDER BY c.name COLLATE NOCASE`, userID, viewerID)
 	if err != nil {
 		return stats, err
