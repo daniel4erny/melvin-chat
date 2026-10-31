@@ -15,12 +15,15 @@ export default function MessageList({
   loadingOlder,
   typingNames,
   showTimestamps,
+  focusId,
   onLoadOlder,
   onReact,
   onDelete,
   onReply,
   onVote,
   onClosePoll,
+  onProfile,
+  onMention,
 }: {
   messages: Message[];
   me: User;
@@ -31,12 +34,15 @@ export default function MessageList({
   loadingOlder: boolean;
   typingNames: string[];
   showTimestamps: boolean;
+  focusId?: number | null;
   onLoadOlder: () => void;
   onReact: (message: Message, emoji: string) => void;
   onDelete: (message: Message) => void;
   onReply: (message: Message) => void;
   onVote: (poll: Poll, optionIds: number[]) => void;
   onClosePoll: (poll: Poll) => void;
+  onProfile?: (user: User) => void;
+  onMention?: (username: string) => void;
 }) {
   const boxRef = useRef<HTMLDivElement>(null);
   const atBottom = useRef(true);
@@ -53,13 +59,22 @@ export default function MessageList({
       box.scrollTop = box.scrollHeight;
       return;
     }
+    if (focusId) {
+      const el = document.getElementById(`msg-${focusId}`);
+      if (el) {
+        el.scrollIntoView({ block: "center" });
+        atBottom.current = false;
+        restore.current = null;
+        return;
+      }
+    }
     if (restore.current !== null) {
       box.scrollTop = box.scrollHeight - restore.current;
       restore.current = null;
       return;
     }
     if (atBottom.current) box.scrollTop = box.scrollHeight;
-  }, [messages, channelId]);
+  }, [messages, channelId, focusId]);
 
   const onScroll = () => {
     const box = boxRef.current;
@@ -99,12 +114,14 @@ export default function MessageList({
         grouped={grouped}
         showTimestamps={showTimestamps}
         replyMessage={message.replyTo ? byId.get(message.replyTo) : undefined}
-        flash={false}
+        flash={message.id === focusId}
         onReact={onReact}
         onDelete={onDelete}
         onReply={onReply}
         onVote={onVote}
         onClosePoll={onClosePoll}
+        onProfile={onProfile}
+        onMention={onMention}
       />,
     );
     previous = message;

@@ -45,7 +45,13 @@ export type IconName =
   | "user"
   | "clock"
   | "pin"
-  | "arrowLeft";
+  | "arrowLeft"
+  | "more"
+  | "copy"
+  | "at"
+  | "link"
+  | "userPlus"
+  | "userMinus";
 
 const paths: Record<IconName, ReactNode> = {
   hash: <><path d="M4 9h16M4 15h16M10 3 8 21M16 3l-2 18" /></>,
@@ -93,6 +99,12 @@ const paths: Record<IconName, ReactNode> = {
   clock: <><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 3" /></>,
   pin: <><path d="M12 22s7-6.4 7-12a7 7 0 1 0-14 0c0 5.6 7 12 7 12Z" /><circle cx="12" cy="10" r="2.5" /></>,
   arrowLeft: <path d="M19 12H5M12 19l-7-7 7-7" />,
+  more: <><circle cx="12" cy="5" r="1.6" fill="currentColor" stroke="none" /><circle cx="12" cy="12" r="1.6" fill="currentColor" stroke="none" /><circle cx="12" cy="19" r="1.6" fill="currentColor" stroke="none" /></>,
+  copy: <><rect x="9" y="9" width="12" height="12" rx="2" /><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" /></>,
+  at: <><circle cx="12" cy="12" r="4" /><path d="M16 8v5a3 3 0 0 0 6 0v-1a10 10 0 1 0-3.9 7.9" /></>,
+  link: <><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7" /><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7" /></>,
+  userPlus: <><circle cx="9" cy="8" r="4" /><path d="M2 21a7 7 0 0 1 14 0M19 8v6M22 11h-6" /></>,
+  userMinus: <><circle cx="9" cy="8" r="4" /><path d="M2 21a7 7 0 0 1 14 0M22 11h-6" /></>,
 };
 
 export function Icon({

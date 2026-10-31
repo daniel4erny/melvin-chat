@@ -99,6 +99,18 @@ export type AppConfig = {
   version: string;
 };
 
+export type Invite = {
+  code: string;
+  createdBy: number;
+  note: string;
+  maxUses: number;
+  uses: number;
+  createdAt: number;
+  expiresAt?: number;
+  revoked: boolean;
+  active: boolean;
+};
+
 export type CallPeer = {
   id: number;
   username: string;

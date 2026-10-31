@@ -6,7 +6,8 @@ kanály, hlasovky, hovory, ankety a soubory na vašem vlastním serveru.
 ## Co umí
 
 - **Účty** — klasické jméno + heslo (PBKDF2, 210 000 iterací), 90denní session.
-  První zaregistrovaný účet je admin. Registraci chrání pozvánkový kód.
+  První zaregistrovaný účet je admin. Další účty vznikají jen přes jednorázové
+  pozvánky, které admin vygeneruje v nastavení.
 - **Kanály** — veřejné (všichni, i nově příchozí) a soukromé (jen pozvaní).
   Vlastník kanálu spravuje členy, téma a viditelnost.
 - **Zprávy** — reakce, odpovědi, mazání, historie po stránkách,
@@ -28,7 +29,7 @@ kanály, hlasovky, hovory, ankety a soubory na vašem vlastním serveru.
 
 ```bash
 cp .env.example .env
-# uprav REGISTRATION_CODE, MAX_UPLOAD_MB, ICE_SERVERS, DOMAIN
+# uprav MAX_UPLOAD_MB, ICE_SERVERS, DOMAIN (REGISTRATION_CODE je jen volitelný fallback)
 docker compose up -d --build
 ```
 
@@ -63,9 +64,11 @@ novějších CPU funguje taky.
 ## První kroky
 
 1. Otevři web, klikni na **Vytvořit účet**.
-2. Zadej pozvánkový kód z `REGISTRATION_CODE` (pokud je nastavený).
-3. První účet dostane admin práva a server mu automaticky založí veřejný
-   kanál `#general`.
+2. První účet na čerstvém serveru se vytvoří bez pozvánky a dostane admin práva.
+   Server mu automaticky založí veřejný kanál `#general`.
+3. V **Nastavení → Pozvánky** vygeneruj odkaz pro každého dalšího člověka.
+   Pozvánka jde omezit počtem použití a platností; odkaz vypadá jako
+   `https://tvuj-server/?invite=kod`. Po použití se kód sám spotřebuje.
 4. Vytvoř další kanály tlačítkem **+** v levém panelu. Pro soukromý kanál
    vyber konkrétní lidi.
 
@@ -114,7 +117,7 @@ Podrobnosti a systémové závislosti: [`desktop/README.md`](desktop/README.md).
 | `DB_PATH` | `/data/melvin.db` | SQLite databáze |
 | `UPLOAD_DIR` | `/data/uploads` | Soubory a rozpracovaná nahrávání |
 | `MAX_UPLOAD_MB` | `500` | Max. velikost jednoho souboru |
-| `REGISTRATION_CODE` | *(prázdné)* | Pozvánka pro registraci; prázdné = otevřená registrace |
+| `REGISTRATION_CODE` | *(prázdné)* | Volitelný legacy kód pro registraci. Normálně se používají jednorázové pozvánky z UI. |
 | `ICE_SERVERS` | `stun:stun.l.google.com:19302` | STUN/TURN pro hovory, oddělené čárkou. TURN s credentials: `turn:host:3478\|user\|pass` |
 | `VERSION` | `0.1.0` | Verze zobrazená v nastavení |
 

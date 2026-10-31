@@ -1304,3 +1304,126 @@ input[type="color"] {
     grid-template-columns: 1fr;
   }
 }
+
+/* ---------- admin: users & invites ---------- */
+
+.adminUserList,
+.inviteList {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.adminUserRow,
+.inviteRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: var(--bg-3);
+  border: 1px solid transparent;
+}
+
+.adminUserRow:hover,
+.inviteRow:hover {
+  border-color: var(--border-strong);
+}
+
+.adminUserInfo,
+.inviteInfo {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  flex: 1;
+}
+
+.adminUserInfo strong,
+.inviteInfo strong {
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--text-strong);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.adminUserInfo small,
+.inviteInfo small {
+  font-size: 0.74rem;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.inviteInfo code {
+  padding: 1px 4px;
+  border-radius: 3px;
+  background: var(--panel-3);
+  color: var(--text);
+  font-size: 0.72rem;
+  letter-spacing: 0.03em;
+}
+
+.inviteStatus {
+  flex-shrink: 0;
+  font-size: 0.68rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  padding: 2px 6px;
+  border-radius: 3px;
+  background: var(--panel-3);
+  color: var(--muted);
+}
+
+.inviteStatus.active {
+  background: color-mix(in srgb, var(--success) 16%, transparent);
+  color: var(--success);
+}
+
+.inviteRow.inactive {
+  opacity: 0.55;
+}
+
+.inviteForm {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.inviteForm .field {
+  min-width: 120px;
+}
+
+.inviteForm .field.inviteNote {
+  flex: 1;
+  min-width: 160px;
+}
+
+@media (max-width: 560px) {
+  .adminUserRow,
+  .inviteRow {
+    flex-wrap: wrap;
+  }
+
+  .adminUserRow .btn,
+  .inviteRow .btn {
+    flex: 1;
+    justify-content: center;
+  }
+
+  .inviteForm {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .inviteForm .btn {
+    justify-content: center;
+  }
+}

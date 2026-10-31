@@ -17,6 +17,8 @@ export type SocketEvent = {
   sdp?: RTCSessionDescriptionInit;
   candidate?: RTCIceCandidateInit;
   renegotiate?: boolean;
+  valid?: boolean;
+  reason?: string;
 };
 
 type Listener = (event: SocketEvent) => void;

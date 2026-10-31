@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"regexp"
 	"strconv"
 	"strings"
 )
@@ -229,6 +230,63 @@ func (d *DB) ListMessages(channelID, beforeID int64, limit int, viewerID int64) 
 	return msgs, hasMore, err
 }
 
+// ListMessagesAround loads a window of messages centred on aroundID. It is used
+// when jumping to a search hit. hasMore refers to older messages.
+func (d *DB) ListMessagesAround(channelID, aroundID int64, limit int, viewerID int64) ([]Message, bool, error) {
+	if limit <= 0 || limit > 100 {
+		limit = 50
+	}
+	half := limit / 2
+	rows, err := d.sql.Query(
+		messageSelect+" WHERE m.channel_id = ? AND m.id <= ? ORDER BY m.id DESC LIMIT ?",
+		channelID, aroundID, half+2,
+	)
+	if err != nil {
+		return nil, false, err
+	}
+	older := []baseMessage{}
+	for rows.Next() {
+		b, err := scanBaseMessage(rows)
+		if err != nil {
+			rows.Close()
+			return nil, false, err
+		}
+		older = append(older, b)
+	}
+	rows.Close()
+	hasMore := len(older) > half+1
+	if hasMore {
+		older = older[:half+1]
+	}
+	for i, j := 0, len(older)-1; i < j; i, j = i+1, j-1 {
+		older[i], older[j] = older[j], older[i]
+	}
+	remaining := limit - len(older)
+	if remaining < 0 {
+		remaining = 0
+	}
+	if remaining > 0 {
+		rows, err = d.sql.Query(
+			messageSelect+" WHERE m.channel_id = ? AND m.id > ? ORDER BY m.id ASC LIMIT ?",
+			channelID, aroundID, remaining,
+		)
+		if err != nil {
+			return nil, false, err
+		}
+		for rows.Next() {
+			b, err := scanBaseMessage(rows)
+			if err != nil {
+				rows.Close()
+				return nil, false, err
+			}
+			older = append(older, b)
+		}
+		rows.Close()
+	}
+	msgs, err := d.hydrateMessages(older, viewerID)
+	return msgs, hasMore, err
+}
+
 func (d *DB) MessagesByIDs(ids []int64, viewerID int64) ([]Message, error) {
 	if len(ids) == 0 {
 		return []Message{}, nil
@@ -416,6 +474,40 @@ func (d *DB) SearchMessages(channelID int64, query string, viewerID int64) ([]Me
 
 // ---- handlers ----
 
+var mentionPattern = regexp.MustCompile(`(?:^|[\s(])@([a-zA-Z0-9_.-]{3,24})`)
+
+// notifyMentions pings every channel member mentioned with @username.
+func (a *App) notifyMentions(channelID int64, msg Message) {
+	matches := mentionPattern.FindAllStringSubmatch(msg.Text, -1)
+	if len(matches) == 0 {
+		return
+	}
+	members, err := a.db.ListChannelMembers(channelID)
+	if err != nil {
+		return
+	}
+	byName := map[string]int64{}
+	for _, member := range members {
+		byName[strings.ToLower(member.Username)] = member.ID
+	}
+	seen := map[int64]bool{}
+	ids := []int64{}
+	for _, match := range matches {
+		id, ok := byName[strings.ToLower(match[1])]
+		if !ok || id == msg.User.ID || seen[id] {
+			continue
+		}
+		seen[id] = true
+		ids = append(ids, id)
+	}
+	if len(ids) == 0 {
+		return
+	}
+	a.hub.BroadcastUsers(ids, map[string]any{
+		"type": "mention", "channelId": channelID, "messageId": msg.ID, "message": msg,
+	})
+}
+
 func (a *App) listMessages(w http.ResponseWriter, r *http.Request, u User) {
 	channelID, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	if err != nil {
@@ -430,7 +522,17 @@ func (a *App) listMessages(w http.ResponseWriter, r *http.Request, u User) {
 	if v := r.URL.Query().Get("before"); v != "" {
 		before, _ = strconv.ParseInt(v, 10, 64)
 	}
+	around, _ := strconv.ParseInt(r.URL.Query().Get("around"), 10, 64)
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	if around > 0 {
+		msgs, hasMore, err := a.db.ListMessagesAround(channelID, around, limit, u.ID)
+		if err != nil {
+			writeErr(w, http.StatusInternalServerError, "Nepodařilo se načíst zprávy")
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"messages": msgs, "hasMore": hasMore, "around": around})
+		return
+	}
 	msgs, hasMore, err := a.db.ListMessages(channelID, before, limit, u.ID)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "Nepodařilo se načíst zprávy")
@@ -476,6 +578,7 @@ func (a *App) sendMessage(w http.ResponseWriter, r *http.Request, u User) {
 		return
 	}
 	a.hub.BroadcastChannel(channelID, map[string]any{"type": "message:new", "channelId": channelID, "message": msg})
+	a.notifyMentions(channelID, msg)
 	writeJSON(w, http.StatusOK, map[string]any{"message": msg})
 }
 

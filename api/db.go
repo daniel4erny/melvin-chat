@@ -1,7 +1,9 @@
 package main
 
 import (
+	"crypto/rand"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"strings"
@@ -83,6 +85,18 @@ CREATE TABLE IF NOT EXISTS sessions (
 	expires_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
+
+CREATE TABLE IF NOT EXISTS invites (
+	code       TEXT PRIMARY KEY,
+	created_by INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+	note       TEXT NOT NULL DEFAULT '',
+	max_uses   INTEGER NOT NULL DEFAULT 1,
+	uses       INTEGER NOT NULL DEFAULT 0,
+	created_at INTEGER NOT NULL,
+	expires_at INTEGER,
+	revoked    INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_invites_created ON invites(created_at);
 
 CREATE TABLE IF NOT EXISTS channels (
 	id         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -433,4 +447,174 @@ func (d *DB) DeleteSession(tokenHash string) error {
 func (d *DB) DeleteUserSessions(userID int64) error {
 	_, err := d.sql.Exec("DELETE FROM sessions WHERE user_id = ?", userID)
 	return err
+}
+
+func (d *DB) CountAdmins() (int, error) {
+	var n int
+	err := d.sql.QueryRow("SELECT COUNT(*) FROM users WHERE is_admin = 1").Scan(&n)
+	return n, err
+}
+
+// SetAdmin flips the admin flag. Callers must check permissions first.
+func (d *DB) SetAdmin(id int64, admin bool) (User, error) {
+	flag := 0
+	if admin {
+		flag = 1
+	}
+	res, err := d.sql.Exec("UPDATE users SET is_admin = ? WHERE id = ?", flag, id)
+	if err != nil {
+		return User{}, err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return User{}, errNotFound
+	}
+	return d.UserByID(id)
+}
+
+// ---- invites ----
+
+type Invite struct {
+	Code      string `json:"code"`
+	CreatedBy int64  `json:"createdBy"`
+	Note      string `json:"note"`
+	MaxUses   int    `json:"maxUses"`
+	Uses      int    `json:"uses"`
+	CreatedAt int64  `json:"createdAt"`
+	ExpiresAt *int64 `json:"expiresAt,omitempty"`
+	Revoked   bool   `json:"revoked"`
+	Active    bool   `json:"active"`
+}
+
+const inviteCols = "code, created_by, note, max_uses, uses, created_at, expires_at, revoked"
+
+func scanInvite(s scanner) (Invite, error) {
+	var inv Invite
+	var expires sql.NullInt64
+	var revoked int
+	if err := s.Scan(&inv.Code, &inv.CreatedBy, &inv.Note, &inv.MaxUses, &inv.Uses, &inv.CreatedAt, &expires, &revoked); err != nil {
+		return Invite{}, err
+	}
+	if expires.Valid {
+		v := expires.Int64
+		inv.ExpiresAt = &v
+	}
+	inv.Revoked = revoked != 0
+	inv.Active = !inv.Revoked && inv.Uses < inv.MaxUses && (inv.ExpiresAt == nil || *inv.ExpiresAt > nowMS())
+	return inv, nil
+}
+
+func inviteCode() (string, error) {
+	buf := make([]byte, 6)
+	if _, err := rand.Read(buf); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(buf), nil
+}
+
+func (d *DB) CreateInvite(createdBy int64, note string, maxUses int, expiresAt *int64) (Invite, error) {
+	if maxUses < 1 {
+		maxUses = 1
+	}
+	if maxUses > 100 {
+		maxUses = 100
+	}
+	for attempt := 0; attempt < 5; attempt++ {
+		code, err := inviteCode()
+		if err != nil {
+			return Invite{}, err
+		}
+		_, err = d.sql.Exec(
+			"INSERT INTO invites (code, created_by, note, max_uses, uses, created_at, expires_at) VALUES (?, ?, ?, ?, 0, ?, ?)",
+			code, createdBy, strings.TrimSpace(note), maxUses, nowMS(), expiresAt,
+		)
+		if err == nil {
+			return d.InviteByCode(code)
+		}
+		if !strings.Contains(strings.ToLower(err.Error()), "unique") && !strings.Contains(strings.ToLower(err.Error()), "constraint") {
+			return Invite{}, err
+		}
+	}
+	return Invite{}, errors.New("nepodařilo se vygenerovat kód")
+}
+
+func (d *DB) InviteByCode(code string) (Invite, error) {
+	inv, err := scanInvite(d.sql.QueryRow("SELECT "+inviteCols+" FROM invites WHERE code = ?", code))
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return Invite{}, errNotFound
+		}
+		return Invite{}, err
+	}
+	return inv, nil
+}
+
+func (d *DB) ListInvites() ([]Invite, error) {
+	rows, err := d.sql.Query("SELECT " + inviteCols + " FROM invites ORDER BY created_at DESC")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []Invite{}
+	for rows.Next() {
+		inv, err := scanInvite(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, inv)
+	}
+	return out, rows.Err()
+}
+
+func (d *DB) ValidInviteCount() (int, error) {
+	var n int
+	err := d.sql.QueryRow(
+		"SELECT COUNT(*) FROM invites WHERE revoked = 0 AND uses < max_uses AND (expires_at IS NULL OR expires_at > ?)",
+		nowMS(),
+	).Scan(&n)
+	return n, err
+}
+
+func (d *DB) RevokeInvite(code string) error {
+	res, err := d.sql.Exec("UPDATE invites SET revoked = 1 WHERE code = ?", code)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return errNotFound
+	}
+	return nil
+}
+
+// CheckInvite reports why an invite cannot be used, without consuming it.
+func (d *DB) CheckInvite(code string) error {
+	inv, err := d.InviteByCode(code)
+	if err != nil {
+		return errors.New("Pozvánka neexistuje")
+	}
+	if inv.Revoked {
+		return errors.New("Pozvánka byla zrušena")
+	}
+	if inv.ExpiresAt != nil && *inv.ExpiresAt <= nowMS() {
+		return errors.New("Pozvánka vypršela")
+	}
+	if inv.Uses >= inv.MaxUses {
+		return errors.New("Pozvánka už byla použitá")
+	}
+	return nil
+}
+
+// ConsumeInvite atomically marks one use. Returns an error when the code is
+// invalid, expired, revoked or already used up.
+func (d *DB) ConsumeInvite(code string) error {
+	res, err := d.sql.Exec(
+		"UPDATE invites SET uses = uses + 1 WHERE code = ? AND revoked = 0 AND uses < max_uses AND (expires_at IS NULL OR expires_at > ?)",
+		code, nowMS(),
+	)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return errors.New("Pozvánka je neplatná nebo už použitá")
+	}
+	return nil
 }

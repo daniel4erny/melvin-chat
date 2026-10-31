@@ -1,5 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { fileURL } from "../api";
+import { toast } from "../toast";
 import type { Message, Poll, User } from "../types";
 import { formatDateTime, formatDuration, formatSize, formatTime } from "../utils";
 import { Icon } from "./Icon";
@@ -7,18 +8,43 @@ import { Avatar } from "./ui";
 
 const QUICK_REACTIONS = ["👍", "❤️", "😂", "🔥", "😮", "😢"];
 
-function linkify(text: string) {
-  const parts = text.split(/(https?:\/\/[^\s<]+)/g);
-  return parts.map((part, index) => {
+const URL_RE = /(https?:\/\/[^\s<]+)/g;
+const MENTION_RE = /(@[a-zA-Z0-9_.-]{3,24})/g;
+
+function renderText(text: string, onMention?: (username: string) => void): ReactNode[] {
+  const out: ReactNode[] = [];
+  const urlParts = text.split(URL_RE);
+  urlParts.forEach((part, urlIndex) => {
     if (/^https?:\/\//.test(part)) {
-      return (
-        <a key={index} href={part} target="_blank" rel="noreferrer noopener">
+      out.push(
+        <a key={`u${urlIndex}`} href={part} target="_blank" rel="noreferrer noopener">
           {part}
-        </a>
+        </a>,
       );
+      return;
     }
-    return <span key={index}>{part}</span>;
+    const pieces = part.split(MENTION_RE);
+    pieces.forEach((piece, pieceIndex) => {
+      if (/^@[a-zA-Z0-9_.-]{3,24}$/.test(piece)) {
+        out.push(
+          <button
+            type="button"
+            key={`m${urlIndex}-${pieceIndex}`}
+            className="mention"
+            onClick={(event) => {
+              event.stopPropagation();
+              onMention?.(piece.slice(1));
+            }}
+          >
+            {piece}
+          </button>,
+        );
+      } else if (piece) {
+        out.push(<span key={`t${urlIndex}-${pieceIndex}`}>{piece}</span>);
+      }
+    });
   });
+  return out;
 }
 
 function PollCard({
@@ -184,6 +210,8 @@ export default function MessageItem({
   onReply,
   onVote,
   onClosePoll,
+  onProfile,
+  onMention,
 }: {
   message: Message;
   me: User;
@@ -196,10 +224,43 @@ export default function MessageItem({
   onReply: (message: Message) => void;
   onVote: (poll: Poll, optionIds: number[]) => void;
   onClosePoll: (poll: Poll) => void;
+  onProfile?: (user: User) => void;
+  onMention?: (username: string) => void;
 }) {
   const [picker, setPicker] = useState(false);
-  const [actionsOpen, setActionsOpen] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [touchActive, setTouchActive] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
   const canDelete = me.id === message.user.id || me.admin;
+
+  useEffect(() => {
+    if (!menuOpen && !touchActive) return;
+    const onDocDown = (event: MouseEvent) => {
+      if (!rootRef.current?.contains(event.target as Node)) {
+        setMenuOpen(false);
+        setTouchActive(false);
+      }
+    };
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setMenuOpen(false);
+        setTouchActive(false);
+      }
+    };
+    document.addEventListener("mousedown", onDocDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDocDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [menuOpen, touchActive]);
+
+  const onMessageClick = (event: React.MouseEvent<HTMLDivElement>) => {
+    if (!window.matchMedia("(max-width: 900px)").matches) return;
+    const target = event.target as HTMLElement;
+    if (target.closest("button, a, audio, video, input, textarea")) return;
+    setTouchActive((active) => !active);
+  };
 
   const jumpTo = (id: number) => {
     const el = document.getElementById(`msg-${id}`);
@@ -210,23 +271,41 @@ export default function MessageItem({
     }
   };
 
+  const copyText = async () => {
+    try {
+      await navigator.clipboard.writeText(message.text);
+      toast.success("Text zkopírován");
+    } catch {
+      toast.error("Kopírování se nepovedlo");
+    }
+    setMenuOpen(false);
+  };
+
   return (
     <div
       id={`msg-${message.id}`}
-      className={`message${grouped ? " grouped" : ""}${flash ? " msgFlash" : ""}${message.deleted ? " deleted" : ""}${actionsOpen ? " actionsOpen" : ""}`}
-      onClick={(e) => {
-        const target = e.target as HTMLElement;
-        if (target.closest("button, a, video, audio, input, textarea")) return;
-        setActionsOpen((open) => !open);
-      }}
+      ref={rootRef}
+      onClick={onMessageClick}
+      className={`message${grouped ? " grouped" : ""}${flash ? " msgFlash" : ""}${message.deleted ? " deleted" : ""}${menuOpen || touchActive ? " actionsOpen" : ""}`}
     >
       <div className="messageAvatar">
-        {!grouped && <Avatar name={message.user.displayName} color={message.user.avatarColor} size={38} />}
+        {!grouped && (
+          <button
+            type="button"
+            className="avatarBtn"
+            onClick={() => onProfile?.(message.user)}
+            aria-label={`Profil ${message.user.displayName}`}
+          >
+            <Avatar name={message.user.displayName} color={message.user.avatarColor} size={38} />
+          </button>
+        )}
       </div>
       <div className="messageMain">
         {!grouped && (
           <div className="messageHead">
-            <span className="messageAuthor">{message.user.displayName}</span>
+            <button type="button" className="messageAuthor" onClick={() => onProfile?.(message.user)}>
+              {message.user.displayName}
+            </button>
             {message.user.admin && <span className="adminTag">admin</span>}
             {showTimestamps && (
               <time className="messageTime" title={formatDateTime(message.createdAt)}>
@@ -249,7 +328,7 @@ export default function MessageItem({
           <p className="deletedText">Tato zpráva byla smazána.</p>
         ) : (
           <>
-            {message.text && <div className="messageText">{linkify(message.text)}</div>}
+            {message.text && <div className="messageText">{renderText(message.text, onMention)}</div>}
             <AttachmentView message={message} />
             {message.poll && (
               <PollCard poll={message.poll} me={me} onVote={onVote} onClose={onClosePoll} />
@@ -275,15 +354,52 @@ export default function MessageItem({
 
       {!message.deleted && (
         <div className="messageActions">
-          <button className="iconBtn" title="Reagovat" onClick={() => setPicker((v) => !v)}>
-            <Icon name="smile" size={16} />
+          <button
+            className={`iconBtn${menuOpen ? " active" : ""}`}
+            title="Další akce"
+            aria-label="Další akce"
+            onClick={() => setMenuOpen((open) => !open)}
+          >
+            <Icon name="more" size={18} />
           </button>
-          <button className="iconBtn" title="Odpovědět" onClick={() => onReply(message)}>
-            <Icon name="reply" size={16} />
+        </div>
+      )}
+
+      {menuOpen && !message.deleted && (
+        <div className="msgMenu" role="menu">
+          <button
+            role="menuitem"
+            onClick={() => {
+              setMenuOpen(false);
+              setPicker(true);
+            }}
+          >
+            <Icon name="smile" size={16} /> Reagovat
           </button>
+          <button
+            role="menuitem"
+            onClick={() => {
+              setMenuOpen(false);
+              onReply(message);
+            }}
+          >
+            <Icon name="reply" size={16} /> Odpovědět
+          </button>
+          {message.text && (
+            <button role="menuitem" onClick={() => void copyText()}>
+              <Icon name="copy" size={16} /> Kopírovat text
+            </button>
+          )}
           {canDelete && (
-            <button className="iconBtn danger" title="Smazat" onClick={() => onDelete(message)}>
-              <Icon name="trash" size={16} />
+            <button
+              role="menuitem"
+              className="danger"
+              onClick={() => {
+                setMenuOpen(false);
+                onDelete(message);
+              }}
+            >
+              <Icon name="trash" size={16} /> Smazat
             </button>
           )}
         </div>

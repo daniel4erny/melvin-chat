@@ -3,7 +3,7 @@ import { api, getServer, setServer } from "../api";
 import { applyTheme } from "../theme";
 import { toast } from "../toast";
 import { clearLogs, downloadLogs, getLogs, type LogEntry } from "../logs";
-import type { User, UserSettings, WSStatus } from "../types";
+import type { Invite, User, UserSettings, WSStatus } from "../types";
 import { formatDateTime, validColor } from "../utils";
 import { Icon, type IconName } from "./Icon";
 import { Avatar, Modal, Spinner } from "./ui";
@@ -11,13 +11,15 @@ import { Avatar, Modal, Spinner } from "./ui";
 const ACCENTS = ["#5865f2", "#1abc9c", "#eb459e", "#f0b232", "#3ba55c", "#ed4245", "#00a8fc", "#a78bfa"];
 const COLOR_CHOICES = ["#5865f2", "#1abc9c", "#eb459e", "#f0b232", "#3ba55c", "#ed4245", "#00a8fc", "#a78bfa", "#94a3b8"];
 
-type Tab = "profile" | "appearance" | "chat" | "privacy" | "system";
+type Tab = "profile" | "appearance" | "chat" | "privacy" | "users" | "invites" | "system";
 
-const TABS: { id: Tab; label: string; icon: IconName }[] = [
+const TABS: { id: Tab; label: string; icon: IconName; admin?: boolean }[] = [
   { id: "profile", label: "Profil", icon: "user" },
   { id: "appearance", label: "Vzhled", icon: "palette" },
   { id: "chat", label: "Chat", icon: "bell" },
   { id: "privacy", label: "Soukromí", icon: "shield" },
+  { id: "users", label: "Uživatelé", icon: "users", admin: true },
+  { id: "invites", label: "Pozvánky", icon: "link", admin: true },
   { id: "system", label: "Systém", icon: "server" },
 ];
 
@@ -30,6 +32,7 @@ export default function SettingsModal({
   maxUploadMB,
   onSave,
   onLogout,
+  onRefreshUser,
 }: {
   open: boolean;
   onClose: () => void;
@@ -39,6 +42,7 @@ export default function SettingsModal({
   maxUploadMB: number;
   onSave: (patch: Record<string, unknown>) => Promise<User>;
   onLogout: () => void;
+  onRefreshUser: () => Promise<void>;
 }) {
   const [tab, setTab] = useState<Tab>("profile");
   const [displayName, setDisplayName] = useState(user.displayName);
@@ -54,6 +58,16 @@ export default function SettingsModal({
 
   const [serverValue, setServerValue] = useState(getServer());
   const [logs, setLogs] = useState<LogEntry[]>([]);
+
+  const [users, setUsers] = useState<User[]>([]);
+  const [usersLoading, setUsersLoading] = useState(false);
+  const [busyUser, setBusyUser] = useState<number | null>(null);
+  const [invites, setInvites] = useState<Invite[]>([]);
+  const [invitesLoading, setInvitesLoading] = useState(false);
+  const [inviteNote, setInviteNote] = useState("");
+  const [inviteUses, setInviteUses] = useState(1);
+  const [inviteExpiry, setInviteExpiry] = useState(0);
+  const [creatingInvite, setCreatingInvite] = useState(false);
 
   useEffect(() => {
     if (!open) return;
@@ -75,6 +89,105 @@ export default function SettingsModal({
   useEffect(() => {
     if (open && tab === "system") setLogs(getLogs());
   }, [open, tab]);
+
+  useEffect(() => {
+    if (!open || !user.admin) return;
+    if (tab === "users") void loadUsers();
+    if (tab === "invites") void loadInvites();
+  }, [open, tab, user.admin]);
+
+  async function loadUsers() {
+    setUsersLoading(true);
+    try {
+      const res = await api<{ users: User[] }>("/api/users");
+      setUsers(res.users);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Uživatele se nepodařilo načíst");
+    } finally {
+      setUsersLoading(false);
+    }
+  }
+
+  async function loadInvites() {
+    setInvitesLoading(true);
+    try {
+      const res = await api<{ invites: Invite[] }>("/api/invites");
+      setInvites(res.invites);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Pozvánky se nepodařilo načíst");
+    } finally {
+      setInvitesLoading(false);
+    }
+  }
+
+  async function toggleAdmin(target: User) {
+    setBusyUser(target.id);
+    try {
+      const res = await api<{ user: User }>(`/api/users/${target.id}`, {
+        method: "PATCH",
+        body: { admin: !target.admin },
+      });
+      setUsers((prev) => prev.map((u) => (u.id === res.user.id ? res.user : u)));
+      if (res.user.id === user.id) await onRefreshUser();
+      toast.success(res.user.admin ? `${res.user.displayName} je teď admin` : `${res.user.displayName} už není admin`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Změna práv selhala");
+    } finally {
+      setBusyUser(null);
+    }
+  }
+
+  async function createInvite() {
+    if (creatingInvite) return;
+    setCreatingInvite(true);
+    try {
+      const res = await api<{ invite: Invite }>("/api/invites", {
+        method: "POST",
+        body: { note: inviteNote.trim(), maxUses: inviteUses, expiresInHours: inviteExpiry },
+      });
+      setInvites((prev) => [res.invite, ...prev]);
+      setInviteNote("");
+      toast.success("Pozvánka vytvořena");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Pozvánku se nepodařilo vytvořit");
+    } finally {
+      setCreatingInvite(false);
+    }
+  }
+
+  async function revokeInvite(code: string) {
+    if (!window.confirm("Zrušit tuhle pozvánku? Odkaz přestane fungovat.")) return;
+    try {
+      await api(`/api/invites/${code}`, { method: "DELETE" });
+      setInvites((prev) => prev.map((inv) => (inv.code === code ? { ...inv, revoked: true, active: false } : inv)));
+      toast.success("Pozvánka zrušena");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Pozvánku se nepodařilo zrušit");
+    }
+  }
+
+  function inviteURL(code: string) {
+    return `${getServer() || location.origin}/?invite=${code}`;
+  }
+
+  async function copyInvite(code: string) {
+    try {
+      await navigator.clipboard.writeText(inviteURL(code));
+      toast.success("Odkaz zkopírován");
+    } catch {
+      toast.error("Kopírování se nepovedlo, zkopíruj kód ručně");
+    }
+  }
+
+  function expiryLabel(invite: Invite) {
+    if (invite.revoked) return "zrušená";
+    if (invite.expiresAt) {
+      const days = Math.ceil((invite.expiresAt - Date.now()) / 86_400_000);
+      if (days <= 0) return "vypršela";
+      return days === 1 ? "vyprší za den" : `vyprší za ${days} dní`;
+    }
+    return "bez expirace";
+  }
 
   const patch = (value: Partial<UserSettings>) => setSettings((prev) => ({ ...prev, ...value }));
 
@@ -169,19 +282,25 @@ export default function SettingsModal({
       title="Nastavení"
       subtitle="Vzhled, soukromí, chování chatu a diagnostika"
       footer={
-        <>
+        tab === "users" || tab === "invites" || tab === "system" ? (
           <button className="btn ghost" onClick={close}>
-            Zrušit
+            Zavřít
           </button>
-          <button className="btn primary" onClick={() => void save()} disabled={saving}>
-            {saving ? <Spinner size={16} /> : <Icon name="check" size={16} />} Uložit změny
-          </button>
-        </>
+        ) : (
+          <>
+            <button className="btn ghost" onClick={close}>
+              Zrušit
+            </button>
+            <button className="btn primary" onClick={() => void save()} disabled={saving}>
+              {saving ? <Spinner size={16} /> : <Icon name="check" size={16} />} Uložit změny
+            </button>
+          </>
+        )
       }
     >
       <div className="settingsLayout">
         <nav className="settingsNav">
-          {TABS.map((item) => (
+          {TABS.filter((item) => !item.admin || user.admin).map((item) => (
             <button
               key={item.id}
               className={tab === item.id ? "active" : ""}
@@ -465,6 +584,148 @@ export default function SettingsModal({
               <div className="hintBox">
                 <Icon name="shield" size={15} /> Kanály, zprávy a soubory jsou dostupné jen členům daného
                 kanálu. Soukromé kanály neuvidí ani ve výpisu.
+              </div>
+            </div>
+          )}
+
+          {tab === "users" && user.admin && (
+            <div className="settingsSection">
+              <div className="settingsBlock">
+                <h4>
+                  <Icon name="users" size={16} /> Uživatelé ({users.length})
+                </h4>
+                <p className="muted">
+                  Admin může spravovat kanály, mazat cizí zprávy a vytvářet pozvánky. Práva měň kliknutím
+                  na tlačítko.
+                </p>
+                {usersLoading && (
+                  <div className="row gap muted small">
+                    <Spinner size={16} /> Načítám uživatele…
+                  </div>
+                )}
+                <div className="adminUserList">
+                  {users.map((member) => (
+                    <div className="adminUserRow" key={member.id}>
+                      <Avatar name={member.displayName} color={member.avatarColor} size={34} />
+                      <span className="adminUserInfo">
+                        <strong>
+                          {member.displayName}
+                          {member.id === user.id && " (ty)"}
+                        </strong>
+                        <small>@{member.username}</small>
+                      </span>
+                      {member.admin && <span className="adminTag">admin</span>}
+                      <button
+                        className={`btn tiny${member.admin ? " danger ghost" : ""}`}
+                        onClick={() => void toggleAdmin(member)}
+                        disabled={busyUser === member.id}
+                      >
+                        {busyUser === member.id ? (
+                          <Spinner size={14} />
+                        ) : (
+                          <Icon name={member.admin ? "userMinus" : "userPlus"} size={14} />
+                        )}
+                        {member.admin ? "Odebrat admina" : "Udělat adminem"}
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {tab === "invites" && user.admin && (
+            <div className="settingsSection">
+              <div className="settingsBlock">
+                <h4>
+                  <Icon name="link" size={16} /> Nová pozvánka
+                </h4>
+                <p className="muted">
+                  Registrace je jen na jednorázovou pozvánku. Vygeneruj odkaz a pošli ho člověku, kterého
+                  chceš přidat.
+                </p>
+                <div className="inviteForm">
+                  <label className="field inviteNote">
+                    <span>Poznámka</span>
+                    <input
+                      value={inviteNote}
+                      onChange={(e) => setInviteNote(e.target.value)}
+                      placeholder="Pro koho (nepovinné)"
+                      maxLength={80}
+                    />
+                  </label>
+                  <label className="field">
+                    <span>Použití</span>
+                    <input
+                      type="number"
+                      min={1}
+                      max={100}
+                      value={inviteUses}
+                      onChange={(e) => setInviteUses(Math.max(1, Math.min(100, Number(e.target.value) || 1)))}
+                    />
+                  </label>
+                  <label className="field">
+                    <span>Platnost</span>
+                    <select value={inviteExpiry} onChange={(e) => setInviteExpiry(Number(e.target.value))}>
+                      <option value={0}>Bez omezení</option>
+                      <option value={24}>24 hodin</option>
+                      <option value={24 * 7}>7 dní</option>
+                      <option value={24 * 30}>30 dní</option>
+                    </select>
+                  </label>
+                  <button className="btn primary" onClick={() => void createInvite()} disabled={creatingInvite}>
+                    {creatingInvite ? <Spinner size={16} /> : <Icon name="plus" size={16} />} Vytvořit
+                  </button>
+                </div>
+              </div>
+
+              <div className="settingsBlock">
+                <div className="row spaceBetween">
+                  <h4>Vytvořené pozvánky</h4>
+                  <button className="btn tiny ghost" onClick={() => void loadInvites()}>
+                    <Icon name="refresh" size={13} /> Obnovit
+                  </button>
+                </div>
+                {invitesLoading && (
+                  <div className="row gap muted small">
+                    <Spinner size={16} /> Načítám pozvánky…
+                  </div>
+                )}
+                {!invitesLoading && invites.length === 0 && (
+                  <p className="muted small">Zatím žádné pozvánky. Vytvoř první výše.</p>
+                )}
+                <div className="inviteList">
+                  {invites.map((invite) => (
+                    <div className={`inviteRow${invite.active ? "" : " inactive"}`} key={invite.code}>
+                      <span className="inviteInfo">
+                        <strong>{invite.note || "Pozvánka"}</strong>
+                        <small>
+                          <code>{invite.code}</code> · {invite.uses}/{invite.maxUses} použití ·{" "}
+                          {expiryLabel(invite)}
+                          {invite.expiresAt ? ` (${formatDateTime(invite.expiresAt)})` : ""}
+                        </small>
+                      </span>
+                      <span className={`inviteStatus${invite.active ? " active" : ""}`}>
+                        {invite.active ? "platná" : "neplatná"}
+                      </span>
+                      <button
+                        className="btn tiny"
+                        onClick={() => void copyInvite(invite.code)}
+                        disabled={!invite.active}
+                        title={inviteURL(invite.code)}
+                      >
+                        <Icon name="copy" size={14} /> Kopírovat odkaz
+                      </button>
+                      <button
+                        className="btn tiny danger ghost"
+                        onClick={() => void revokeInvite(invite.code)}
+                        disabled={!invite.active}
+                      >
+                        <Icon name="x" size={14} /> Zrušit
+                      </button>
+                    </div>
+                  ))}
+                </div>
               </div>
             </div>
           )}

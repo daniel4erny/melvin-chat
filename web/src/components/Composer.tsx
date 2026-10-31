@@ -1,13 +1,35 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { kindFromFile, uploadBlob } from "../api";
 import { socket } from "../ws";
 import { toast } from "../toast";
-import type { Attachment, Message } from "../types";
+import type { Attachment, Message, User } from "../types";
 import { formatDuration, formatSize } from "../utils";
 import { Icon } from "./Icon";
-import { Spinner } from "./ui";
+import { Avatar, Spinner } from "./ui";
 
 const EMOJIS = ["😀", "😂", "🥹", "😍", "😎", "🤔", "😭", "🔥", "❤️", "👍", "👎", "🎉", "💀", "🍺", "☕", "🚀"];
+
+function filesFrom(data: DataTransfer | null): File[] {
+  if (!data) return [];
+  const files: File[] = [];
+  if (data.items && data.items.length > 0) {
+    for (const item of Array.from(data.items)) {
+      if (item.kind !== "file") continue;
+      const file = item.getAsFile();
+      if (file) files.push(file);
+    }
+  }
+  if (files.length === 0 && data.files) {
+    for (const file of Array.from(data.files)) files.push(file);
+  }
+  return files;
+}
+
+function namePastedFile(file: File): File {
+  if (file.name && file.name !== "image.png" && file.name !== "blob") return file;
+  const ext = (file.type.split("/")[1] || "png").replace("jpeg", "jpg");
+  return new File([file], `screenshot-${Date.now()}.${ext}`, { type: file.type });
+}
 
 export default function Composer({
   channelId,
@@ -15,6 +37,7 @@ export default function Composer({
   replyTo,
   maxUploadMB,
   enterToSend,
+  members,
   onCancelReply,
   onSend,
   onPoll,
@@ -24,6 +47,7 @@ export default function Composer({
   replyTo: Message | null;
   maxUploadMB: number;
   enterToSend: boolean;
+  members: User[];
   onCancelReply: () => void;
   onSend: (text: string, attachmentId?: string, replyTo?: number) => Promise<void>;
   onPoll: () => void;
@@ -35,6 +59,9 @@ export default function Composer({
   const [emojiOpen, setEmojiOpen] = useState(false);
   const [recording, setRecording] = useState(false);
   const [seconds, setSeconds] = useState(0);
+  const [dragging, setDragging] = useState(false);
+  const [mention, setMention] = useState<{ start: number; query: string } | null>(null);
+  const [mentionIndex, setMentionIndex] = useState(0);
 
   const fileInput = useRef<HTMLInputElement>(null);
   const textarea = useRef<HTMLTextAreaElement>(null);
@@ -68,6 +95,7 @@ export default function Composer({
     setPending([]);
     setEmojiOpen(false);
     setText("");
+    setMention(null);
     if (recorder.current && recorder.current.state !== "inactive") {
       discard.current = true;
       recorder.current.stop();
@@ -91,6 +119,7 @@ export default function Composer({
       }
       setText("");
       setPending([]);
+      setMention(null);
       onCancelReply();
       setEmojiOpen(false);
     } catch {
@@ -100,7 +129,58 @@ export default function Composer({
     }
   };
 
+  const mentionMatches = useMemo(() => {
+    if (!mention) return [];
+    const q = mention.query.toLowerCase();
+    return members
+      .filter((member) => member.id !== 0)
+      .filter(
+        (member) =>
+          member.username.toLowerCase().startsWith(q) ||
+          member.displayName.toLowerCase().includes(q),
+      )
+      .slice(0, 6);
+  }, [mention, members]);
+
+  const applyMention = (username: string) => {
+    const el = textarea.current;
+    if (!el || !mention) return;
+    const caret = el.selectionStart ?? text.length;
+    const next = `${text.slice(0, mention.start)}@${username} ${text.slice(caret)}`;
+    setMention(null);
+    setText(next);
+    requestAnimationFrame(() => {
+      el.focus();
+      const pos = mention.start + username.length + 2;
+      el.setSelectionRange(pos, pos);
+      el.style.height = "auto";
+      el.style.height = `${Math.min(el.scrollHeight, 200)}px`;
+    });
+  };
+
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (mention && mentionMatches.length > 0) {
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        setMentionIndex((index) => (index + 1) % mentionMatches.length);
+        return;
+      }
+      if (e.key === "ArrowUp") {
+        e.preventDefault();
+        setMentionIndex((index) => (index - 1 + mentionMatches.length) % mentionMatches.length);
+        return;
+      }
+      if (e.key === "Enter" || e.key === "Tab") {
+        e.preventDefault();
+        applyMention(mentionMatches[mentionIndex]!.username);
+        return;
+      }
+      if (e.key === "Escape") {
+        e.preventDefault();
+        setMention(null);
+        return;
+      }
+    }
     if (e.key === "Enter" && !e.shiftKey && enterToSend) {
       e.preventDefault();
       void send();
@@ -108,8 +188,18 @@ export default function Composer({
     if (e.key === "Escape") onCancelReply();
   };
 
-  const onTextChange = (value: string) => {
+  const onTextChange = (value: string, caret?: number | null) => {
     setText(value);
+    const position = caret ?? value.length;
+    const before = value.slice(0, position);
+    const match = /(?:^|[\s(])@([a-zA-Z0-9_.-]*)$/.exec(before);
+    if (match) {
+      const query = match[1] ?? "";
+      setMention({ start: position - query.length - 1, query });
+      setMentionIndex(0);
+    } else {
+      setMention(null);
+    }
     const now = Date.now();
     if (now - typingAt.current > 2500) {
       typingAt.current = now;
@@ -140,15 +230,41 @@ export default function Composer({
     }
   };
 
-  const handleFiles = async (list: FileList | null) => {
-    if (!list || list.length === 0) return;
-    if (recording) return;
+  const handleFiles = async (list: FileList | File[] | null) => {
+    if (!list) return;
     const files = Array.from(list).slice(0, 5);
+    if (files.length === 0) return;
+    if (recording) return;
     for (const file of files) {
       await upload(file);
     }
     if (fileInput.current) fileInput.current.value = "";
   };
+
+  const handleFilesRef = useRef(handleFiles);
+  handleFilesRef.current = handleFiles;
+
+  // Ctrl+V / Cmd+V anywhere in the chat: paste screenshots and copied files.
+  useEffect(() => {
+    const onPaste = (event: ClipboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      // Ignore pastes into unrelated form fields (settings, login, rename inputs).
+      if (
+        target &&
+        target !== document.body &&
+        (target.tagName === "INPUT" || target.tagName === "TEXTAREA") &&
+        target !== textarea.current
+      ) {
+        return;
+      }
+      const files = filesFrom(event.clipboardData).map(namePastedFile);
+      if (files.length === 0) return;
+      event.preventDefault();
+      void handleFilesRef.current(files);
+    };
+    window.addEventListener("paste", onPaste);
+    return () => window.removeEventListener("paste", onPaste);
+  }, []);
 
   const startRecording = async () => {
     if (!navigator.mediaDevices?.getUserMedia) {
@@ -220,7 +336,30 @@ export default function Composer({
   };
 
   return (
-    <div className="composerWrap">
+    <div
+      className="composerWrap"
+      onDragOver={(event) => {
+        if (Array.from(event.dataTransfer.types).includes("Files")) {
+          event.preventDefault();
+          setDragging(true);
+        }
+      }}
+      onDragLeave={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDragging(false);
+      }}
+      onDrop={(event) => {
+        event.preventDefault();
+        setDragging(false);
+        void handleFiles(filesFrom(event.dataTransfer).map(namePastedFile));
+      }}
+    >
+      {dragging && (
+        <div className="dropOverlay">
+          <Icon name="paperclip" size={22} />
+          <span>Pustit soubor do chatu</span>
+        </div>
+      )}
+
       {replyTo && (
         <div className="replyBar">
           <Icon name="reply" size={14} />
@@ -275,6 +414,26 @@ export default function Composer({
         </div>
       )}
 
+      {mention && mentionMatches.length > 0 && (
+        <div className="mentionPop">
+          <span className="mentionPopHint">Zmínit uživatele</span>
+          {mentionMatches.map((member, index) => (
+            <button
+              key={member.id}
+              className={index === mentionIndex ? "active" : ""}
+              onMouseDown={(event) => {
+                event.preventDefault();
+                applyMention(member.username);
+              }}
+            >
+              <Avatar name={member.displayName} color={member.avatarColor} size={22} />
+              <span className="mentionName">{member.displayName}</span>
+              <span className="mentionHandle">@{member.username}</span>
+            </button>
+          ))}
+        </div>
+      )}
+
       {recording ? (
         <div className="composer recordingBar">
           <span className="recordDot" />
@@ -315,8 +474,9 @@ export default function Composer({
             rows={1}
             value={text}
             placeholder={`Napiš zprávu do #${channelName}`}
-            onChange={(e) => onTextChange(e.target.value)}
+            onChange={(e) => onTextChange(e.target.value, e.target.selectionStart)}
             onKeyDown={handleKeyDown}
+            onBlur={() => setMention(null)}
             maxLength={8000}
           />
 

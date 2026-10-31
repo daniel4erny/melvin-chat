@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { fetchConfig, getServer, isTauri, setServer } from "../api";
+import { api, fetchConfig, getServer, isTauri, setServer } from "../api";
 import { useAuth } from "../auth";
 import { Icon } from "../components/Icon";
 import { Spinner } from "../components/ui";
@@ -13,7 +13,8 @@ export default function Login() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [displayName, setDisplayName] = useState("");
-  const [invite, setInvite] = useState("");
+  const [invite, setInvite] = useState(() => new URLSearchParams(location.search).get("invite") ?? "");
+  const [inviteHint, setInviteHint] = useState<{ text: string; ok: boolean } | null>(null);
   const [server, setServerValue] = useState(() => getServer());
   const [showPassword, setShowPassword] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -26,6 +27,21 @@ export default function Login() {
     fetchConfig()
       .then(setConfig)
       .catch(() => setConfig(null));
+  }, []);
+
+  useEffect(() => {
+    const code = new URLSearchParams(location.search).get("invite");
+    if (!code) return;
+    setMode("register");
+    api<{ valid: boolean; reason?: string }>(`/api/invites/${encodeURIComponent(code)}`)
+      .then((res) =>
+        setInviteHint(
+          res.valid
+            ? { text: "Pozvánka je platná. Stačí si vytvořit účet.", ok: true }
+            : { text: res.reason ?? "Pozvánka je neplatná.", ok: false },
+        ),
+      )
+      .catch(() => setInviteHint({ text: "Pozvánku se nepodařilo ověřit.", ok: false }));
   }, []);
 
   const normalizeServer = (value: string) => {
@@ -137,19 +153,25 @@ export default function Login() {
             </div>
           </label>
 
-          {mode === "register" && config?.needsInvite && (
+          {mode === "register" && (config?.needsInvite || invite) && (
             <label className="field">
               <span>Pozvánkový kód</span>
               <div className="inputWrap">
                 <Icon name="shield" size={17} />
                 <input
                   value={invite}
-                  onChange={(e) => setInvite(e.target.value)}
-                  placeholder="Kód od správce"
+                  onChange={(e) => {
+                    setInvite(e.target.value);
+                    setInviteHint(null);
+                  }}
+                  placeholder="Kód nebo odkaz od správce"
                   autoComplete="off"
                   required
                 />
               </div>
+              {inviteHint && (
+                <small className={`inviteHint${inviteHint.ok ? " ok" : ""}`}>{inviteHint.text}</small>
+              )}
             </label>
           )}
 
@@ -180,10 +202,25 @@ export default function Login() {
         </form>
 
         <p className="authHint">
-          {mode === "login" ? "Nemáš účet? " : "Už máš účet? "}
-          <button type="button" className="linkBtn" onClick={() => switchMode(mode === "login" ? "register" : "login")}>
-            {mode === "login" ? "Vytvoř si ho" : "Přihlas se"}
-          </button>
+          {mode === "login" ? (
+            config && config.registrationOpen === false ? (
+              <>Registrace je jen na pozvánku. Požádej správce o odkaz.</>
+            ) : (
+              <>
+                Nemáš účet?{" "}
+                <button type="button" className="linkBtn" onClick={() => switchMode("register")}>
+                  Vytvoř si ho
+                </button>
+              </>
+            )
+          ) : (
+            <>
+              Už máš účet?{" "}
+              <button type="button" className="linkBtn" onClick={() => switchMode("login")}>
+                Přihlas se
+              </button>
+            </>
+          )}
         </p>
         {native && (
           <p className="authHint subtle">

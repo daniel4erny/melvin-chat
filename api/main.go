@@ -97,6 +97,13 @@ func main() {
 	mux.HandleFunc("PATCH /api/me", app.auth(app.updateMe))
 	mux.HandleFunc("POST /api/me/password", app.auth(app.changePassword))
 	mux.HandleFunc("GET /api/users", app.auth(app.listUsers))
+	mux.HandleFunc("GET /api/users/{id}", app.auth(app.getUser))
+	mux.HandleFunc("PATCH /api/users/{id}", app.admin(app.updateUserAdmin))
+
+	mux.HandleFunc("GET /api/invites", app.admin(app.listInvites))
+	mux.HandleFunc("POST /api/invites", app.admin(app.createInvite))
+	mux.HandleFunc("GET /api/invites/{code}", app.checkInvite)
+	mux.HandleFunc("DELETE /api/invites/{code}", app.admin(app.revokeInvite))
 
 	mux.HandleFunc("GET /api/channels", app.auth(app.listChannels))
 	mux.HandleFunc("POST /api/channels", app.auth(app.createChannel))

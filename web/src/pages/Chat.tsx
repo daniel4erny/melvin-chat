@@ -24,6 +24,8 @@ import ChannelModal from "../components/ChannelModal";
 import SettingsModal from "../components/SettingsModal";
 import PollModal from "../components/PollModal";
 import CallBar from "../components/CallBar";
+import ProfileCard from "../components/ProfileCard";
+import SearchPanel from "../components/SearchPanel";
 import { useCall } from "../useCall";
 import "../styles/chat.css";
 
@@ -62,7 +64,7 @@ function notifyMessage(message: Message, channel?: Channel) {
 }
 
 export default function Chat() {
-  const { user, updateUser, logout } = useAuth();
+  const { user, updateUser, logout, refresh } = useAuth();
   const me = user as User;
 
   const [config, setConfig] = useState<AppConfig>(DEFAULT_CONFIG);
@@ -87,6 +89,10 @@ export default function Chat() {
   const [membersOpen, setMembersOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [ring, setRing] = useState<{ channelId: number; from: CallPeer } | null>(null);
+  const [profileUser, setProfileUser] = useState<User | null>(null);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [focusId, setFocusId] = useState<number | null>(null);
+  const focusTimer = useRef<number | null>(null);
 
   const activeRef = useRef<number | null>(activeId);
   const channelsRef = useRef<Channel[]>(channels);
@@ -233,7 +239,37 @@ export default function Chat() {
   const openChannel = useCallback((id: number) => {
     setActiveId(id);
     setSidebarOpen(false);
+    setSearchOpen(false);
+    setProfileUser(null);
   }, []);
+
+  const jumpToMessage = useCallback(async (messageId: number) => {
+    const channelId = activeRef.current;
+    if (!channelId) return;
+    setSearchOpen(false);
+    try {
+      const res = await api<{ messages: Message[]; hasMore: boolean }>(
+        `/api/channels/${channelId}/messages?around=${messageId}&limit=50`,
+      );
+      setMessages(res.messages);
+      messagesRef.current = res.messages;
+      setHasMore(res.hasMore);
+      setFocusId(messageId);
+      if (focusTimer.current !== null) window.clearTimeout(focusTimer.current);
+      focusTimer.current = window.setTimeout(() => setFocusId(null), 2200);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Na zprávu se nepodařilo skočit");
+    }
+  }, []);
+
+  const openProfileByUsername = useCallback(
+    (username: string) => {
+      const found = members.find((member) => member.username.toLowerCase() === username.toLowerCase());
+      if (found) setProfileUser(found);
+      else toast.info(`Uživatel @${username} není v tomto kanálu`);
+    },
+    [members],
+  );
 
   const sendMessage = useCallback(
     async (text: string, attachmentId?: string, replyToId?: number) => {
@@ -448,6 +484,21 @@ export default function Chat() {
         void refreshChannels();
         break;
       }
+      case "mention": {
+        const mentionMessage = event.message;
+        if (mentionMessage && mentionMessage.user.id !== me.id) {
+          const channel = channelsRef.current.find((c) => c.id === mentionMessage.channelId);
+          toast.info(
+            `${mentionMessage.user.displayName} tě zmínil${channel ? ` v #${channel.name}` : ""}`,
+          );
+          if (userRef.current.settings.messageSound) playPing();
+        }
+        break;
+      }
+      case "user:updated": {
+        if (event.user?.id === me.id) void refresh();
+        break;
+      }
       case "call:ring": {
         if (event.from && event.channelId && event.from.id !== me.id && !callRef.current.state) {
           setRing({ channelId: event.channelId, from: event.from });
@@ -605,6 +656,17 @@ export default function Chat() {
 
             {activeChannel && (
               <button
+                className={`iconBtn searchBtn${searchOpen ? " active" : ""}`}
+                title="Hledat ve zprávách"
+                aria-label="Hledat ve zprávách"
+                onClick={() => setSearchOpen((open) => !open)}
+              >
+                <Icon name="search" size={18} />
+              </button>
+            )}
+
+            {activeChannel && (
+              <button
                 className="iconBtn memberBtn"
                 title="Členové kanálu"
                 onClick={() => setMembersOpen(true)}
@@ -626,19 +688,28 @@ export default function Chat() {
 
             {activeChannel && (
               <button
-                className={`btn callHeaderBtn${inCallHere ? " active" : ""}`}
+                className={`iconBtn callHeaderBtn${inCallHere ? " active" : ""}`}
                 onClick={() => {
                   if (inCallHere) call.leave();
                   else void call.join(activeChannel.id);
                 }}
                 title={inCallHere ? "Zavěsit hovor" : "Zavolat do kanálu"}
+                aria-label={inCallHere ? "Zavěsit hovor" : "Zavolat do kanálu"}
               >
-                <Icon name={inCallHere ? "phoneOff" : "phone"} size={17} />
-                <span>{inCallHere ? "Zavěsit" : "Zavolat"}</span>
+                <Icon name={inCallHere ? "phoneOff" : "phone"} size={18} />
               </button>
             )}
           </div>
         </header>
+
+        {searchOpen && activeChannel && (
+          <SearchPanel
+            channelId={activeChannel.id}
+            channelName={activeChannel.name}
+            onJump={(id) => void jumpToMessage(id)}
+            onClose={() => setSearchOpen(false)}
+          />
+        )}
 
         <div className="chatBody">
           {wsStatus === "offline" && (
@@ -683,12 +754,15 @@ export default function Chat() {
                 loadingOlder={loadingOlder}
                 typingNames={typingNames}
                 showTimestamps={me.settings.showTimestamps}
+                focusId={focusId}
                 onLoadOlder={() => void loadOlder()}
                 onReact={(message, emoji) => void react(message, emoji)}
                 onDelete={(message) => void deleteMessage(message)}
                 onReply={setReplyTo}
                 onVote={(poll, ids) => void votePoll(poll, ids)}
                 onClosePoll={(poll) => void closePoll(poll)}
+                onProfile={setProfileUser}
+                onMention={openProfileByUsername}
               />
               <Composer
                 channelId={activeChannel.id}
@@ -696,6 +770,7 @@ export default function Chat() {
                 replyTo={replyTo}
                 maxUploadMB={config.maxUploadMB}
                 enterToSend={me.settings.enterToSend}
+                members={members}
                 onCancelReply={() => setReplyTo(null)}
                 onSend={sendMessage}
                 onPoll={() => setPollOpen(true)}
@@ -759,7 +834,15 @@ export default function Chat() {
               {members.map((member) => {
                 const isOnline = onlineMembers.has(member.id);
                 return (
-                  <div className="memberEntry" key={member.id}>
+                  <button
+                    type="button"
+                    className="memberEntry"
+                    key={member.id}
+                    onClick={() => {
+                      setMembersOpen(false);
+                      setProfileUser(member);
+                    }}
+                  >
                     <Avatar name={member.displayName} color={member.avatarColor} size={34} online={isOnline} />
                     <span className="memberEntryInfo">
                       <strong>
@@ -770,7 +853,7 @@ export default function Chat() {
                     </span>
                     {member.role === "owner" && <span className="ownerTag">vlastník</span>}
                     {member.admin && <span className="adminTag">admin</span>}
-                  </div>
+                  </button>
                 );
               })}
             </div>
@@ -817,6 +900,7 @@ export default function Chat() {
           version={config.version}
           maxUploadMB={config.maxUploadMB}
           onSave={updateUser}
+          onRefreshUser={refresh}
           onClose={() => setSettingsOpen(false)}
           onLogout={() => {
             if (window.confirm("Odhlásit se?")) void logout();
@@ -830,6 +914,24 @@ export default function Chat() {
           channelName={activeChannel.name}
           onClose={() => setPollOpen(false)}
           onCreate={createPoll}
+        />
+      )}
+
+      {profileUser && (
+        <ProfileCard
+          user={profileUser}
+          me={me}
+          online={online.has(profileUser.id)}
+          onClose={() => setProfileUser(null)}
+          onUpdated={(updated) => {
+            setProfileUser(updated);
+            setMembers((prev) => prev.map((member) => (member.id === updated.id ? { ...member, ...updated } : member)));
+            if (updated.id === me.id) void refresh();
+          }}
+          onEditSelf={() => {
+            setProfileUser(null);
+            setSettingsOpen(true);
+          }}
         />
       )}
     </div>

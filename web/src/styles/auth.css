@@ -113,3 +113,12 @@
     font-size: 1.3rem;
   }
 }
+
+.inviteHint {
+  font-size: 0.78rem;
+  color: var(--danger);
+}
+
+.inviteHint.ok {
+  color: var(--success);
+}

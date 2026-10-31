@@ -7,6 +7,7 @@ import (
 	"crypto/subtle"
 	"encoding/hex"
 	"errors"
+	"log"
 	"net/http"
 	"regexp"
 	"strconv"
@@ -116,6 +117,16 @@ func (a *App) auth(h authedHandler) http.HandlerFunc {
 	}
 }
 
+func (a *App) admin(h authedHandler) http.HandlerFunc {
+	return a.auth(func(w http.ResponseWriter, r *http.Request, u User) {
+		if !u.Admin {
+			writeErr(w, http.StatusForbidden, "Tohle může jen správce")
+			return
+		}
+		h(w, r, u)
+	})
+}
+
 func (a *App) issueSession(w http.ResponseWriter, u User) {
 	token, tokenHash, err := randomToken()
 	if err != nil {
@@ -164,10 +175,26 @@ func (a *App) register(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "Heslo musí mít alespoň 6 znaků")
 		return
 	}
-	if a.regCode != "" && subtle.ConstantTimeCompare([]byte(c.Invite), []byte(a.regCode)) != 1 {
-		writeErr(w, http.StatusForbidden, "Špatný pozvánkový kód")
+
+	count, err := a.db.CountUsers()
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "Chyba serveru")
 		return
 	}
+	firstUser := count == 0
+	legacyCode := a.regCode != "" && subtle.ConstantTimeCompare([]byte(c.Invite), []byte(a.regCode)) == 1
+	inviteCode := strings.TrimSpace(c.Invite)
+	if !firstUser && !legacyCode {
+		if inviteCode == "" {
+			writeErr(w, http.StatusForbidden, "Registrace je jen na jednorázovou pozvánku")
+			return
+		}
+		if err := a.db.CheckInvite(inviteCode); err != nil {
+			writeErr(w, http.StatusForbidden, err.Error())
+			return
+		}
+	}
+
 	if c.DisplayName == "" {
 		c.DisplayName = c.Username
 	}
@@ -184,6 +211,11 @@ func (a *App) register(w http.ResponseWriter, r *http.Request) {
 		}
 		writeErr(w, http.StatusInternalServerError, "Nepodařilo se vytvořit účet")
 		return
+	}
+	if !firstUser && !legacyCode {
+		if err := a.db.ConsumeInvite(inviteCode); err != nil {
+			log.Printf("invite %s consumed after user %d was created: %v", inviteCode, u.ID, err)
+		}
 	}
 	if u.Admin {
 		// First account on a fresh server gets a public home channel.
@@ -337,12 +369,77 @@ func (a *App) listUsers(w http.ResponseWriter, r *http.Request, _ User) {
 	writeJSON(w, http.StatusOK, map[string]any{"users": users})
 }
 
+func (a *App) getUser(w http.ResponseWriter, r *http.Request, _ User) {
+	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, "Neplatný uživatel")
+		return
+	}
+	u, err := a.db.UserByID(id)
+	if err != nil {
+		writeErr(w, http.StatusNotFound, "Uživatel neexistuje")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"user": u})
+}
+
+// updateUserAdmin lets an admin grant or take away the admin flag.
+func (a *App) updateUserAdmin(w http.ResponseWriter, r *http.Request, actor User) {
+	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, "Neplatný uživatel")
+		return
+	}
+	var in struct {
+		Admin *bool `json:"admin"`
+	}
+	if err := readJSON(r, &in); err != nil || in.Admin == nil {
+		writeErr(w, http.StatusBadRequest, "Neplatný požadavek")
+		return
+	}
+	target, err := a.db.UserByID(id)
+	if err != nil {
+		writeErr(w, http.StatusNotFound, "Uživatel neexistuje")
+		return
+	}
+	if target.Admin && !*in.Admin {
+		admins, err := a.db.CountAdmins()
+		if err != nil {
+			writeErr(w, http.StatusInternalServerError, "Chyba serveru")
+			return
+		}
+		if admins <= 1 {
+			writeErr(w, http.StatusBadRequest, "Musí zůstat alespoň jeden správce")
+			return
+		}
+	}
+	updated, err := a.db.SetAdmin(id, *in.Admin)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "Nepodařilo se uložit práva")
+		return
+	}
+	log.Printf("admin %d (%s) set admin=%v for user %d (%s)", actor.ID, actor.Username, *in.Admin, updated.ID, updated.Username)
+	a.hub.broadcastAll(map[string]any{"type": "users:changed"})
+	a.hub.BroadcastUsers([]int64{updated.ID}, map[string]any{"type": "user:updated", "user": updated})
+	writeJSON(w, http.StatusOK, map[string]any{"user": updated})
+}
+
 func (a *App) config(w http.ResponseWriter, r *http.Request) {
+	count, err := a.db.CountUsers()
+	if err != nil {
+		log.Printf("config: count users: %v", err)
+	}
+	invites, err := a.db.ValidInviteCount()
+	if err != nil {
+		log.Printf("config: count invites: %v", err)
+	}
+	needsInvite := count > 0
+	registrationOpen := count == 0 || invites > 0 || a.regCode != ""
 	writeJSON(w, http.StatusOK, map[string]any{
 		"maxUploadMB":      a.maxUploadMB,
 		"iceServers":       a.iceServers,
-		"registrationOpen": true,
-		"needsInvite":      a.regCode != "",
+		"registrationOpen": registrationOpen,
+		"needsInvite":      needsInvite,
 		"version":          a.version,
 	})
 }
