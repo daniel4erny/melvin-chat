@@ -55,6 +55,11 @@ Zálohuj celý volume, ne jen databázi.
 Pokud deploy spadne, otevři **Deployment Logs** — chyba z `git clone` je něco
 jiného než chyba z `docker compose build`.
 
+Web image si v Dockerfile sám stahuje **baseline** build Bunu. Výchozí Bun
+totiž na x86_64 vyžaduje AVX2 a na starších CPU (nebo ve VM bez průchodu
+AVX2) spadne s `exit code: 132` / SIGILL. Baseline variantu to řeší a na
+novějších CPU funguje taky.
+
 ## První kroky
 
 1. Otevři web, klikni na **Vytvořit účet**.
