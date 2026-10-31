@@ -6,15 +6,6 @@ services:
     # Docker network. For local dev docker-compose.override.yml publishes it.
     expose:
       - "8000"
-    labels:
-      # Coolify's Traefik (docker provider) picks these up; the container name
-      # changes on every deploy, labels do not.
-      - "traefik.enable=true"
-      - "traefik.http.routers.melvin-chat.rule=Host(`melvin.homelab.djt-group.com`)"
-      - "traefik.http.routers.melvin-chat.entryPoints=https"
-      - "traefik.http.routers.melvin-chat.tls=true"
-      - "traefik.http.routers.melvin-chat.tls.certresolver=letsencrypt"
-      - "traefik.http.services.melvin-chat.loadbalancer.server.port=8000"
     environment:
       API_URL: http://api:8000
       PORT: "8000"
