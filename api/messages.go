@@ -58,23 +58,33 @@ type baseMessage struct {
 const messageSelect = `
 	SELECT m.id, m.channel_id, m.user_id, m.text, m.attachment_id, m.poll_id, m.reply_to,
 	       m.created_at, m.edited_at, m.deleted,
-	       u.username, u.display_name, u.avatar_color, u.bio, u.is_admin, u.settings, u.created_at
+	       u.username, u.display_name, u.avatar_color, u.bio, u.is_admin,
+	       u.status_emoji, u.status_text, u.banned, u.ban_reason, u.banned_until,
+	       u.settings, u.created_at
 	FROM messages m JOIN users u ON u.id = m.user_id`
 
 func scanBaseMessage(s scanner) (baseMessage, error) {
 	var b baseMessage
-	var admin int
+	var admin, banned int
+	var bannedUntil sql.NullInt64
 	var settings string
 	err := s.Scan(
 		&b.id, &b.channelID, &b.userID, &b.text, &b.attachmentID, &b.pollID, &b.replyTo,
 		&b.createdAt, &b.editedAt, &b.deleted,
-		&b.user.Username, &b.user.DisplayName, &b.user.AvatarColor, &b.user.Bio, &admin, &settings, &b.user.CreatedAt,
+		&b.user.Username, &b.user.DisplayName, &b.user.AvatarColor, &b.user.Bio, &admin,
+		&b.user.StatusEmoji, &b.user.StatusText, &banned, &b.user.BanReason, &bannedUntil,
+		&settings, &b.user.CreatedAt,
 	)
 	if err != nil {
 		return b, err
 	}
 	b.user.ID = b.userID
 	b.user.Admin = admin != 0
+	b.user.Banned = banned != 0
+	if bannedUntil.Valid {
+		v := bannedUntil.Int64
+		b.user.BannedUntil = &v
+	}
 	b.user.Settings = decodeSettings(settings)
 	return b, nil
 }
@@ -387,6 +397,27 @@ func (d *DB) CreateMessage(channelID, userID int64, text string, attachmentID *s
 	return d.GetMessage(msgID, userID)
 }
 
+// UpdateMessage edits the text of an existing message. Only the author can do
+// it; admins use delete instead of silently rewriting someone else's words.
+func (d *DB) UpdateMessage(id, userID int64, text string) (Message, error) {
+	var channelID, author int64
+	var deleted int
+	if err := d.sql.QueryRow("SELECT channel_id, user_id, deleted FROM messages WHERE id = ?", id).
+		Scan(&channelID, &author, &deleted); err != nil {
+		return Message{}, errNotFound
+	}
+	if deleted != 0 {
+		return Message{}, errors.New("Zpráva je smazaná")
+	}
+	if author != userID {
+		return Message{}, errors.New("Upravit můžeš jen svoji zprávu")
+	}
+	if _, err := d.sql.Exec("UPDATE messages SET text = ?, edited_at = ? WHERE id = ?", text, nowMS(), id); err != nil {
+		return Message{}, err
+	}
+	return d.GetMessage(id, userID)
+}
+
 func (d *DB) DeleteMessage(id, userID int64, isAdmin bool) (int64, *string, error) {
 	var channelID, author int64
 	var attachmentID sql.NullString
@@ -579,6 +610,43 @@ func (a *App) sendMessage(w http.ResponseWriter, r *http.Request, u User) {
 	}
 	a.hub.BroadcastChannel(channelID, map[string]any{"type": "message:new", "channelId": channelID, "message": msg})
 	a.notifyMentions(channelID, msg)
+	writeJSON(w, http.StatusOK, map[string]any{"message": msg})
+}
+
+func (a *App) updateMessage(w http.ResponseWriter, r *http.Request, u User) {
+	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, "Neplatná zpráva")
+		return
+	}
+	var in struct {
+		Text string `json:"text"`
+	}
+	if err := readJSON(r, &in); err != nil {
+		writeErr(w, http.StatusBadRequest, "Neplatný požadavek")
+		return
+	}
+	in.Text = strings.TrimSpace(in.Text)
+	if in.Text == "" {
+		writeErr(w, http.StatusBadRequest, "Zpráva nemůže být prázdná")
+		return
+	}
+	if len(in.Text) > 8000 {
+		writeErr(w, http.StatusBadRequest, "Zpráva je moc dlouhá (max 8000 znaků)")
+		return
+	}
+	msg, err := a.db.UpdateMessage(id, u.ID, in.Text)
+	if err != nil {
+		writeErr(w, http.StatusForbidden, err.Error())
+		return
+	}
+	if _, member, _ := a.db.MemberRole(msg.ChannelID, u.ID); !member {
+		writeErr(w, http.StatusForbidden, "Do tohoto kanálu nemáš přístup")
+		return
+	}
+	a.hub.BroadcastChannel(msg.ChannelID, map[string]any{
+		"type": "message:updated", "channelId": msg.ChannelID, "message": msg,
+	})
 	writeJSON(w, http.StatusOK, map[string]any{"message": msg})
 }
 

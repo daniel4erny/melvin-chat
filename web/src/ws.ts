@@ -1,5 +1,5 @@
 import { wsURL } from "./api";
-import type { CallPeer, Message, Poll, Reaction, WSStatus } from "./types";
+import type { CallPeer, Message, Poll, Reaction, User, WSStatus } from "./types";
 
 export type SocketEvent = {
   type: string;
@@ -9,7 +9,7 @@ export type SocketEvent = {
   messageId?: number;
   reactions?: Reaction[];
   poll?: Poll;
-  user?: CallPeer;
+  user?: User;
   from?: CallPeer;
   userId?: number;
   online?: boolean | number[];

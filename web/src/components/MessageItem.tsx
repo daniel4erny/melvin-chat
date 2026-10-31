@@ -4,7 +4,7 @@ import { toast } from "../toast";
 import type { Message, Poll, User } from "../types";
 import { formatDateTime, formatDuration, formatSize, formatTime } from "../utils";
 import { Icon } from "./Icon";
-import { Avatar } from "./ui";
+import { Avatar, Spinner } from "./ui";
 
 const QUICK_REACTIONS = ["👍", "❤️", "😂", "🔥", "😮", "😢"];
 
@@ -207,6 +207,7 @@ export default function MessageItem({
   flash,
   onReact,
   onDelete,
+  onEdit,
   onReply,
   onVote,
   onClosePoll,
@@ -221,6 +222,7 @@ export default function MessageItem({
   flash: boolean;
   onReact: (message: Message, emoji: string) => void;
   onDelete: (message: Message) => void;
+  onEdit: (message: Message, text: string) => Promise<void>;
   onReply: (message: Message) => void;
   onVote: (poll: Poll, optionIds: number[]) => void;
   onClosePoll: (poll: Poll) => void;
@@ -230,8 +232,53 @@ export default function MessageItem({
   const [picker, setPicker] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [touchActive, setTouchActive] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState("");
+  const [savingEdit, setSavingEdit] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
+  const editRef = useRef<HTMLTextAreaElement>(null);
   const canDelete = me.id === message.user.id || me.admin;
+  const canEdit = me.id === message.user.id && !message.deleted && message.text.length > 0;
+
+  useEffect(() => {
+    if (!editing) return;
+    const el = editRef.current;
+    if (!el) return;
+    el.focus();
+    el.setSelectionRange(el.value.length, el.value.length);
+    el.style.height = "auto";
+    el.style.height = `${Math.min(el.scrollHeight, 240)}px`;
+  }, [editing]);
+
+  const startEdit = () => {
+    setDraft(message.text);
+    setEditing(true);
+    setMenuOpen(false);
+  };
+
+  const cancelEdit = () => {
+    setEditing(false);
+    setDraft("");
+  };
+
+  const submitEdit = async () => {
+    const text = draft.trim();
+    if (!text || savingEdit) return;
+    if (text === message.text) {
+      cancelEdit();
+      return;
+    }
+    setSavingEdit(true);
+    try {
+      await onEdit(message, text);
+      setEditing(false);
+      setDraft("");
+    } catch {
+      // Chat already surfaced the error toast.
+    } finally {
+      setSavingEdit(false);
+    }
+  };
 
   useEffect(() => {
     if (!menuOpen && !touchActive) return;
@@ -286,7 +333,7 @@ export default function MessageItem({
       id={`msg-${message.id}`}
       ref={rootRef}
       onClick={onMessageClick}
-      className={`message${grouped ? " grouped" : ""}${flash ? " msgFlash" : ""}${message.deleted ? " deleted" : ""}${menuOpen || touchActive ? " actionsOpen" : ""}`}
+      className={`message${grouped ? " grouped" : ""}${flash ? " msgFlash" : ""}${message.deleted ? " deleted" : ""}${menuOpen || touchActive ? " actionsOpen" : ""}${editing ? " editing" : ""}`}
     >
       <div className="messageAvatar">
         {!grouped && (
@@ -307,6 +354,14 @@ export default function MessageItem({
               {message.user.displayName}
             </button>
             {message.user.admin && <span className="adminTag">admin</span>}
+            {message.user.statusEmoji && (
+              <span
+                className="msgStatusEmoji"
+                title={message.user.statusText || "Stav"}
+              >
+                {message.user.statusEmoji}
+              </span>
+            )}
             {showTimestamps && (
               <time className="messageTime" title={formatDateTime(message.createdAt)}>
                 {formatTime(message.createdAt)}
@@ -328,7 +383,48 @@ export default function MessageItem({
           <p className="deletedText">Tato zpráva byla smazána.</p>
         ) : (
           <>
-            {message.text && <div className="messageText">{renderText(message.text, onMention)}</div>}
+            {editing ? (
+              <div className="editBox">
+                <textarea
+                  ref={editRef}
+                  value={draft}
+                  onChange={(event) => {
+                    setDraft(event.target.value);
+                    event.target.style.height = "auto";
+                    event.target.style.height = `${Math.min(event.target.scrollHeight, 240)}px`;
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === "Escape") {
+                      event.preventDefault();
+                      cancelEdit();
+                    } else if (event.key === "Enter" && !event.shiftKey) {
+                      event.preventDefault();
+                      void submitEdit();
+                    }
+                  }}
+                  maxLength={8000}
+                  rows={1}
+                  aria-label="Upravit zprávu"
+                />
+                <div className="editActions">
+                  <span>
+                    <kbd>Enter</kbd> uloží · <kbd>Esc</kbd> zruší
+                  </span>
+                  <button className="btn tiny ghost" onClick={cancelEdit} disabled={savingEdit}>
+                    Zrušit
+                  </button>
+                  <button
+                    className="btn tiny primary"
+                    onClick={() => void submitEdit()}
+                    disabled={savingEdit || draft.trim().length === 0}
+                  >
+                    {savingEdit ? <Spinner size={14} /> : <Icon name="check" size={14} />} Uložit
+                  </button>
+                </div>
+              </div>
+            ) : (
+              message.text && <div className="messageText">{renderText(message.text, onMention)}</div>
+            )}
             <AttachmentView message={message} />
             {message.poll && (
               <PollCard poll={message.poll} me={me} onVote={onVote} onClose={onClosePoll} />
@@ -388,6 +484,11 @@ export default function MessageItem({
           {message.text && (
             <button role="menuitem" onClick={() => void copyText()}>
               <Icon name="copy" size={16} /> Kopírovat text
+            </button>
+          )}
+          {canEdit && (
+            <button role="menuitem" onClick={startEdit}>
+              <Icon name="pencil" size={16} /> Upravit zprávu
             </button>
           )}
           {canDelete && (

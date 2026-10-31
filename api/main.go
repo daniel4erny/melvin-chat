@@ -99,6 +99,8 @@ func main() {
 	mux.HandleFunc("GET /api/users", app.auth(app.listUsers))
 	mux.HandleFunc("GET /api/users/{id}", app.auth(app.getUser))
 	mux.HandleFunc("PATCH /api/users/{id}", app.admin(app.updateUserAdmin))
+	mux.HandleFunc("POST /api/users/{id}/ban", app.admin(app.banUser))
+	mux.HandleFunc("POST /api/users/{id}/unban", app.admin(app.unbanUser))
 
 	mux.HandleFunc("GET /api/invites", app.admin(app.listInvites))
 	mux.HandleFunc("POST /api/invites", app.admin(app.createInvite))
@@ -118,6 +120,7 @@ func main() {
 	mux.HandleFunc("POST /api/channels/{id}/polls", app.auth(app.createPoll))
 
 	mux.HandleFunc("DELETE /api/messages/{id}", app.auth(app.deleteMessage))
+	mux.HandleFunc("PATCH /api/messages/{id}", app.auth(app.updateMessage))
 	mux.HandleFunc("POST /api/messages/{id}/reactions", app.auth(app.react))
 
 	mux.HandleFunc("POST /api/polls/{id}/vote", app.auth(app.votePoll))

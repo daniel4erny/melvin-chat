@@ -51,7 +51,9 @@ export type IconName =
   | "at"
   | "link"
   | "userPlus"
-  | "userMinus";
+  | "userMinus"
+  | "pencil"
+  | "ban";
 
 const paths: Record<IconName, ReactNode> = {
   hash: <><path d="M4 9h16M4 15h16M10 3 8 21M16 3l-2 18" /></>,
@@ -105,6 +107,8 @@ const paths: Record<IconName, ReactNode> = {
   link: <><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7" /><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7" /></>,
   userPlus: <><circle cx="9" cy="8" r="4" /><path d="M2 21a7 7 0 0 1 14 0M19 8v6M22 11h-6" /></>,
   userMinus: <><circle cx="9" cy="8" r="4" /><path d="M2 21a7 7 0 0 1 14 0M22 11h-6" /></>,
+  pencil: <><path d="M12 20h9" /><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" /></>,
+  ban: <><circle cx="12" cy="12" r="9" /><path d="m5.6 5.6 12.8 12.8" /></>,
 };
 
 export function Icon({

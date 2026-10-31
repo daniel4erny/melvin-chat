@@ -55,8 +55,22 @@ type User struct {
 	AvatarColor string       `json:"avatarColor"`
 	Bio         string       `json:"bio"`
 	Admin       bool         `json:"admin"`
+	StatusEmoji string       `json:"statusEmoji"`
+	StatusText  string       `json:"statusText"`
+	Banned      bool         `json:"banned"`
+	BanReason   string       `json:"banReason"`
+	BannedUntil *int64       `json:"bannedUntil,omitempty"`
 	Settings    UserSettings `json:"settings"`
 	CreatedAt   int64        `json:"createdAt"`
+}
+
+// BanActive reports whether the account is currently blocked from logging in.
+// Expired bans are ignored so a timed ban never becomes permanent by accident.
+func (u User) BanActive() bool {
+	if !u.Banned {
+		return false
+	}
+	return u.BannedUntil == nil || *u.BannedUntil > nowMS()
 }
 
 type Session struct {
@@ -74,6 +88,12 @@ CREATE TABLE IF NOT EXISTS users (
 	avatar_color  TEXT NOT NULL DEFAULT '#5865f2',
 	bio           TEXT NOT NULL DEFAULT '',
 	is_admin      INTEGER NOT NULL DEFAULT 0,
+	status_emoji  TEXT NOT NULL DEFAULT '',
+	status_text   TEXT NOT NULL DEFAULT '',
+	banned        INTEGER NOT NULL DEFAULT 0,
+	ban_reason    TEXT NOT NULL DEFAULT '',
+	banned_until  INTEGER,
+	banned_at     INTEGER,
 	settings      TEXT NOT NULL DEFAULT '{}',
 	created_at    INTEGER NOT NULL
 );
@@ -206,6 +226,17 @@ func openDB(path string) (*DB, error) {
 		conn.Close()
 		return nil, err
 	}
+	if err := ensureColumns(conn, "users", map[string]string{
+		"status_emoji": "TEXT NOT NULL DEFAULT ''",
+		"status_text":  "TEXT NOT NULL DEFAULT ''",
+		"banned":       "INTEGER NOT NULL DEFAULT 0",
+		"ban_reason":   "TEXT NOT NULL DEFAULT ''",
+		"banned_until": "INTEGER",
+		"banned_at":    "INTEGER",
+	}); err != nil {
+		conn.Close()
+		return nil, err
+	}
 	// Theme migration: the previous default accent was teal, the theme now uses
 	// Discord blurple. Only rewrite the exact old default value.
 	rows, err := conn.Query(`SELECT id, settings FROM users WHERE settings LIKE '%#5eead4%'`)
@@ -276,7 +307,39 @@ func decodeSettings(raw string) UserSettings {
 	return s
 }
 
-const userCols = "u.id, u.username, u.display_name, u.avatar_color, u.bio, u.is_admin, u.settings, u.created_at"
+const userCols = "u.id, u.username, u.display_name, u.avatar_color, u.bio, u.is_admin, u.status_emoji, u.status_text, u.banned, u.ban_reason, u.banned_until, u.settings, u.created_at"
+
+// ensureColumns upgrades databases created by older versions in place.
+func ensureColumns(conn *sql.DB, table string, cols map[string]string) error {
+	rows, err := conn.Query("PRAGMA table_info(" + table + ")")
+	if err != nil {
+		return err
+	}
+	existing := map[string]bool{}
+	for rows.Next() {
+		var cid int
+		var name, typ string
+		var notnull, pk int
+		var dflt any
+		if err := rows.Scan(&cid, &name, &typ, &notnull, &dflt, &pk); err != nil {
+			rows.Close()
+			return err
+		}
+		existing[name] = true
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	for name, ddl := range cols {
+		if existing[name] {
+			continue
+		}
+		if _, err := conn.Exec("ALTER TABLE " + table + " ADD COLUMN " + name + " " + ddl); err != nil {
+			return err
+		}
+	}
+	return nil
+}
 
 type scanner interface {
 	Scan(dest ...any) error
@@ -284,9 +347,14 @@ type scanner interface {
 
 func scanUser(s scanner) (User, error) {
 	var u User
-	var admin int
+	var admin, banned int
 	var settings string
-	err := s.Scan(&u.ID, &u.Username, &u.DisplayName, &u.AvatarColor, &u.Bio, &admin, &settings, &u.CreatedAt)
+	var bannedUntil sql.NullInt64
+	err := s.Scan(
+		&u.ID, &u.Username, &u.DisplayName, &u.AvatarColor, &u.Bio, &admin,
+		&u.StatusEmoji, &u.StatusText, &banned, &u.BanReason, &bannedUntil,
+		&settings, &u.CreatedAt,
+	)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return User{}, errNotFound
@@ -294,6 +362,11 @@ func scanUser(s scanner) (User, error) {
 		return User{}, err
 	}
 	u.Admin = admin != 0
+	u.Banned = banned != 0
+	if bannedUntil.Valid {
+		v := bannedUntil.Int64
+		u.BannedUntil = &v
+	}
 	u.Settings = decodeSettings(settings)
 	return u, nil
 }
@@ -336,10 +409,19 @@ func (d *DB) CreateUser(username, displayName, passwordHash, avatarColor string)
 func (d *DB) UserByUsername(username string) (User, string, error) {
 	var hash string
 	row := d.sql.QueryRow("SELECT "+userCols+", u.password_hash FROM users u WHERE u.username = ?", username)
+	return scanUserWithHash(row, &hash)
+}
+
+func scanUserWithHash(s scanner, hash *string) (User, string, error) {
 	var u User
-	var admin int
+	var admin, banned int
 	var settings string
-	err := row.Scan(&u.ID, &u.Username, &u.DisplayName, &u.AvatarColor, &u.Bio, &admin, &settings, &u.CreatedAt, &hash)
+	var bannedUntil sql.NullInt64
+	err := s.Scan(
+		&u.ID, &u.Username, &u.DisplayName, &u.AvatarColor, &u.Bio, &admin,
+		&u.StatusEmoji, &u.StatusText, &banned, &u.BanReason, &bannedUntil,
+		&settings, &u.CreatedAt, hash,
+	)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return User{}, "", errNotFound
@@ -347,8 +429,13 @@ func (d *DB) UserByUsername(username string) (User, string, error) {
 		return User{}, "", err
 	}
 	u.Admin = admin != 0
+	u.Banned = banned != 0
+	if bannedUntil.Valid {
+		v := bannedUntil.Int64
+		u.BannedUntil = &v
+	}
 	u.Settings = decodeSettings(settings)
-	return u, hash, nil
+	return u, *hash, nil
 }
 
 func (d *DB) UserByID(id int64) (User, error) {
@@ -372,7 +459,7 @@ func (d *DB) ListUsers() ([]User, error) {
 	return users, rows.Err()
 }
 
-func (d *DB) UpdateUserProfile(id int64, displayName, bio, avatarColor *string, settings *UserSettings) (User, error) {
+func (d *DB) UpdateUserProfile(id int64, displayName, bio, avatarColor, statusEmoji, statusText *string, settings *UserSettings) (User, error) {
 	u, err := d.UserByID(id)
 	if err != nil {
 		return User{}, err
@@ -385,6 +472,12 @@ func (d *DB) UpdateUserProfile(id int64, displayName, bio, avatarColor *string, 
 	}
 	if avatarColor != nil && *avatarColor != "" {
 		u.AvatarColor = *avatarColor
+	}
+	if statusEmoji != nil {
+		u.StatusEmoji = strings.TrimSpace(*statusEmoji)
+	}
+	if statusText != nil {
+		u.StatusText = strings.TrimSpace(*statusText)
 	}
 	if settings != nil {
 		s := *settings
@@ -404,8 +497,8 @@ func (d *DB) UpdateUserProfile(id int64, displayName, bio, avatarColor *string, 
 	}
 	raw, _ := json.Marshal(u.Settings)
 	_, err = d.sql.Exec(
-		"UPDATE users SET display_name = ?, bio = ?, avatar_color = ?, settings = ? WHERE id = ?",
-		u.DisplayName, u.Bio, u.AvatarColor, string(raw), id,
+		"UPDATE users SET display_name = ?, bio = ?, avatar_color = ?, status_emoji = ?, status_text = ?, settings = ? WHERE id = ?",
+		u.DisplayName, u.Bio, u.AvatarColor, u.StatusEmoji, u.StatusText, string(raw), id,
 	)
 	if err != nil {
 		return User{}, err
@@ -462,6 +555,35 @@ func (d *DB) SetAdmin(id int64, admin bool) (User, error) {
 		flag = 1
 	}
 	res, err := d.sql.Exec("UPDATE users SET is_admin = ? WHERE id = ?", flag, id)
+	if err != nil {
+		return User{}, err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return User{}, errNotFound
+	}
+	return d.UserByID(id)
+}
+
+// BanUser blocks an account and records who did it and why. until is nil for a
+// permanent ban; otherwise it is a unix timestamp in milliseconds.
+func (d *DB) BanUser(id, bannedBy int64, reason string, until *int64) (User, error) {
+	res, err := d.sql.Exec(
+		"UPDATE users SET banned = 1, ban_reason = ?, banned_at = ?, banned_until = ? WHERE id = ?",
+		strings.TrimSpace(reason), nowMS(), until, id,
+	)
+	if err != nil {
+		return User{}, err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return User{}, errNotFound
+	}
+	return d.UserByID(id)
+}
+
+func (d *DB) UnbanUser(id int64) (User, error) {
+	res, err := d.sql.Exec(
+		"UPDATE users SET banned = 0, ban_reason = '', banned_at = NULL, banned_until = NULL WHERE id = ?", id,
+	)
 	if err != nil {
 		return User{}, err
 	}

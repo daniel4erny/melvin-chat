@@ -113,6 +113,10 @@ func (a *App) auth(h authedHandler) http.HandlerFunc {
 			writeErr(w, http.StatusUnauthorized, "Nejsi přihlášený")
 			return
 		}
+		if u.BanActive() {
+			writeErr(w, http.StatusForbidden, "Účet je zabanovaný")
+			return
+		}
 		h(w, r, u)
 	}
 }
@@ -241,6 +245,14 @@ func (a *App) login(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusUnauthorized, "Špatné jméno nebo heslo")
 		return
 	}
+	if u.BanActive() {
+		msg := "Tvůj účet je zabanovaný"
+		if u.BanReason != "" {
+			msg += ": " + u.BanReason
+		}
+		writeErr(w, http.StatusForbidden, msg)
+		return
+	}
 	a.issueSession(w, u)
 }
 
@@ -260,6 +272,8 @@ type profileUpdate struct {
 	DisplayName *string       `json:"displayName"`
 	Bio         *string       `json:"bio"`
 	AvatarColor *string       `json:"avatarColor"`
+	StatusEmoji *string       `json:"statusEmoji"`
+	StatusText  *string       `json:"statusText"`
 	Settings    *UserSettings `json:"settings"`
 }
 
@@ -284,15 +298,24 @@ func (a *App) updateMe(w http.ResponseWriter, r *http.Request, u User) {
 		writeErr(w, http.StatusBadRequest, "Neplatná barva")
 		return
 	}
+	if p.StatusEmoji != nil && len([]rune(strings.TrimSpace(*p.StatusEmoji))) > 8 {
+		writeErr(w, http.StatusBadRequest, "Stavové emoji je moc dlouhé")
+		return
+	}
+	if p.StatusText != nil && len([]rune(strings.TrimSpace(*p.StatusText))) > 60 {
+		writeErr(w, http.StatusBadRequest, "Stav je moc dlouhý (max 60 znaků)")
+		return
+	}
 	if p.Settings != nil {
 		p.Settings = sanitizeSettings(p.Settings)
 	}
-	updated, err := a.db.UpdateUserProfile(u.ID, p.DisplayName, p.Bio, p.AvatarColor, p.Settings)
+	updated, err := a.db.UpdateUserProfile(u.ID, p.DisplayName, p.Bio, p.AvatarColor, p.StatusEmoji, p.StatusText, p.Settings)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "Nepodařilo se uložit profil")
 		return
 	}
 	a.hub.setPresence(u.ID, updated.Settings.Presence != "nobody")
+	a.hub.broadcastAll(map[string]any{"type": "user:updated", "user": updated})
 	writeJSON(w, http.StatusOK, map[string]any{"user": updated})
 }
 

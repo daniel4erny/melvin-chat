@@ -2300,3 +2300,853 @@
     }
   }
 }
+
+/* ============================================================
+   Modern skin — chat layout
+   ============================================================ */
+
+:root {
+  --msg-hover: rgba(255, 255, 255, 0.038);
+  --user-panel: transparent;
+}
+
+[data-theme="light"] {
+  --msg-hover: rgba(18, 26, 46, 0.045);
+  --user-panel: transparent;
+}
+
+.appShell {
+  background:
+    radial-gradient(1100px 560px at 84% -12%, color-mix(in srgb, var(--accent) 11%, transparent), transparent 62%),
+    var(--bg);
+}
+
+/* ---------- sidebar ---------- */
+
+.sidebar {
+  padding: 8px 8px 10px;
+  gap: 2px;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--bg-2) 94%, var(--accent) 6%), var(--bg-2) 42%);
+  border-right: 1px solid var(--border);
+}
+
+.sidebarBrand {
+  height: 56px;
+  padding: 0 8px;
+  gap: 11px;
+  border-radius: 12px;
+  box-shadow: none;
+}
+
+.sidebarBrand .brandMark {
+  width: 34px;
+  height: 34px;
+  border-radius: 11px;
+  font-size: 1.05rem;
+  background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 72%, #fff), var(--accent));
+  box-shadow: 0 6px 16px color-mix(in srgb, var(--accent) 34%, transparent);
+}
+
+.sidebarBrand .brandName {
+  font-size: 1.04rem;
+  letter-spacing: -0.02em;
+}
+
+.connDot {
+  width: 7px;
+  height: 7px;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--success) 14%, transparent);
+}
+
+.sidebarSection {
+  padding: 14px 9px 5px;
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+}
+
+.channelList {
+  padding: 2px 0 8px;
+  gap: 3px;
+}
+
+.channelItem {
+  min-height: 40px;
+  padding: 7px 10px;
+  gap: 8px;
+  border-radius: 11px;
+}
+
+.channelItem:hover {
+  background: color-mix(in srgb, var(--text-strong) 6%, transparent);
+  color: var(--text);
+}
+
+[data-theme="light"] .channelItem:hover {
+  background: color-mix(in srgb, var(--text-strong) 5%, transparent);
+}
+
+.channelItem.active {
+  background: linear-gradient(135deg, var(--accent-soft), color-mix(in srgb, var(--accent) 7%, transparent));
+  color: var(--text-strong);
+  box-shadow: inset 0 0 0 1px var(--accent-line);
+}
+
+[data-theme="light"] .channelItem.active {
+  background: linear-gradient(135deg, var(--accent-soft), color-mix(in srgb, var(--accent) 5%, transparent));
+}
+
+.channelItem.active .channelIcon {
+  color: var(--accent);
+}
+
+.channelName {
+  font-size: 0.92rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.unreadBadge {
+  min-width: 18px;
+  height: 18px;
+  line-height: 18px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--accent);
+  box-shadow: 0 3px 10px color-mix(in srgb, var(--accent) 40%, transparent);
+  font-size: 0.68rem;
+}
+
+.userPanel {
+  padding: 8px;
+  border-top: 1px solid var(--border);
+}
+
+.userCard {
+  padding: 7px;
+  gap: 9px;
+  border-radius: 12px;
+}
+
+.userCard:hover {
+  background: color-mix(in srgb, var(--text-strong) 6%, transparent);
+}
+
+.userInfo strong {
+  font-weight: 600;
+}
+
+/* ---------- header ---------- */
+
+.chatHeader {
+  height: 62px;
+  padding: 0 18px;
+  gap: 10px;
+  background: var(--glass);
+  backdrop-filter: blur(18px) saturate(1.25);
+  -webkit-backdrop-filter: blur(18px) saturate(1.25);
+  border-bottom: 1px solid var(--border);
+  box-shadow: none;
+}
+
+[data-theme="light"] .chatHeader {
+  box-shadow: none;
+}
+
+.headerChannel {
+  gap: 11px;
+}
+
+.headerChannelIcon {
+  width: 36px;
+  height: 36px;
+  border-radius: 11px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent-line);
+}
+
+.headerChannelText {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+}
+
+.headerChannelText h1 {
+  font-size: 1rem;
+  letter-spacing: -0.02em;
+  max-width: 42vw;
+}
+
+.headerChannelText p {
+  font-size: 0.77rem;
+  padding-left: 0;
+  border-left: none;
+  max-width: 46vw;
+  line-height: 1.3;
+}
+
+.headerActions {
+  gap: 6px;
+}
+
+.wsBadge {
+  padding: 4px 9px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--text-strong) 5%, transparent);
+  border: 1px solid var(--border);
+  font-size: 0.7rem;
+}
+
+.wsBadge .dot {
+  width: 6px;
+  height: 6px;
+}
+
+.memberBtn {
+  padding: 6px 9px;
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--text-strong) 5%, transparent);
+  border: 1px solid var(--border);
+}
+
+.memberCount {
+  font-weight: 600;
+  font-size: 0.74rem;
+}
+
+.callHeaderBtn {
+  border-radius: 9px;
+  padding: 7px;
+}
+
+/* ---------- messages ---------- */
+
+.messageList {
+  padding: 16px 10px 8px;
+  scrollbar-gutter: stable;
+}
+
+.message {
+  margin: 0 6px;
+  padding: 5px 14px;
+  gap: 12px;
+  border-radius: 12px;
+}
+
+.message:hover {
+  background: var(--msg-hover);
+}
+
+.message.editing {
+  background: color-mix(in srgb, var(--accent) 7%, transparent);
+  box-shadow: inset 0 0 0 1px var(--accent-line);
+}
+
+.message.grouped {
+  padding-top: 1px;
+  padding-bottom: 1px;
+}
+
+.messageAvatar {
+  width: 42px;
+}
+
+.messageMain {
+  gap: 2px;
+}
+
+.messageHead {
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 1px;
+}
+
+.messageAuthor {
+  font-size: 0.95rem;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+
+.messageAuthor:hover {
+  text-decoration: none;
+  color: var(--accent);
+}
+
+.messageTime {
+  font-size: 0.69rem;
+}
+
+.msgStatusEmoji {
+  font-size: 0.82rem;
+  line-height: 1;
+  filter: saturate(1.1);
+}
+
+.editedTag {
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--text-strong) 6%, transparent);
+  font-size: 0.62rem;
+}
+
+.messageText {
+  font-size: 0.945rem;
+  line-height: 1.55;
+  word-break: break-word;
+}
+
+.messageText a {
+  border-bottom: 1px solid color-mix(in srgb, var(--link) 35%, transparent);
+}
+
+.messageText a:hover {
+  text-decoration: none;
+  border-bottom-color: var(--link);
+}
+
+.mention {
+  padding: 1px 5px;
+  border-radius: 6px;
+  background: var(--accent-soft);
+  color: color-mix(in srgb, var(--accent) 72%, var(--text-strong));
+}
+
+.deletedText {
+  font-style: italic;
+}
+
+.reactions {
+  gap: 5px;
+  margin-top: 5px;
+}
+
+.reaction {
+  padding: 2px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--text-strong) 4%, transparent);
+}
+
+.reaction:hover {
+  border-color: var(--accent-line);
+  background: var(--accent-soft);
+}
+
+.reaction.mine {
+  border-color: var(--accent-line);
+  background: var(--accent-soft);
+}
+
+.dayDivider {
+  margin: 18px 10px 10px;
+}
+
+.dayDivider span {
+  padding: 3px 12px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--panel-2) 72%, transparent);
+  border: 1px solid var(--border);
+  font-size: 0.66rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+}
+
+.historyStart,
+.historyLoader {
+  margin: 8px auto;
+  padding: 5px 12px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--text-strong) 4%, transparent);
+  width: fit-content;
+  font-size: 0.72rem;
+}
+
+/* ---------- inline edit ---------- */
+
+.editBox {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 4px 0 7px;
+}
+
+.editBox textarea {
+  width: 100%;
+  resize: none;
+  min-height: 40px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--accent-line);
+  background: var(--bg-3);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.94rem;
+  line-height: 1.5;
+  outline: none;
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.editActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.editActions > span {
+  margin-right: auto;
+  color: var(--muted);
+  font-size: 0.71rem;
+}
+
+.editActions kbd {
+  padding: 1px 5px;
+  border-radius: 5px;
+  border: 1px solid var(--border-strong);
+  background: color-mix(in srgb, var(--text-strong) 5%, transparent);
+  font-family: inherit;
+  font-size: 0.66rem;
+}
+
+/* ---------- message menu ---------- */
+
+.msgMenu {
+  border-radius: 14px;
+  padding: 6px;
+  background: color-mix(in srgb, var(--panel-2) 90%, transparent);
+  border: 1px solid var(--border-strong);
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+}
+
+.msgMenu button {
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+
+.messageEmojiPop {
+  border-radius: 14px;
+}
+
+/* ---------- composer ---------- */
+
+.composerWrap {
+  padding: 0 18px 18px;
+}
+
+.composer {
+  padding: 6px 8px;
+  border-radius: 16px;
+  border: 1px solid var(--border-strong);
+  background: color-mix(in srgb, var(--panel) 86%, var(--bg-3));
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.16);
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+.composer:focus-within {
+  border-color: var(--accent-line);
+  box-shadow:
+    0 0 0 3px var(--accent-soft),
+    0 14px 36px rgba(0, 0, 0, 0.2);
+}
+
+.composer textarea {
+  padding: 8px 6px;
+  font-size: 0.95rem;
+  line-height: 1.45;
+}
+
+.sendBtn {
+  width: 38px;
+  height: 38px;
+  border-radius: 11px;
+  background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 76%, #fff), var(--accent));
+  box-shadow: 0 6px 16px color-mix(in srgb, var(--accent) 34%, transparent);
+}
+
+.sendBtn:hover:not(:disabled) {
+  background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 88%, #fff), var(--accent));
+}
+
+.replyBar,
+.pendingAttachments,
+.uploadBar {
+  border-radius: 12px;
+}
+
+.attachmentChip {
+  border-radius: 10px;
+}
+
+.composerEmojiPop,
+.mentionPop {
+  border-radius: 14px;
+  border: 1px solid var(--border-strong);
+  background: color-mix(in srgb, var(--panel-2) 92%, transparent);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  box-shadow: var(--shadow);
+}
+
+/* ---------- attachments / polls ---------- */
+
+.imageAttachment img,
+.videoAttachment,
+.fileAttachment,
+.voiceAttachment,
+.pollCard {
+  border-radius: 14px;
+}
+
+.pollCard {
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--panel) 72%, transparent);
+}
+
+.pollOption {
+  border-radius: 10px;
+}
+
+/* ---------- members drawer ---------- */
+
+.drawerScrim {
+  background: rgba(4, 6, 11, 0.5);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}
+
+.membersDrawer {
+  width: min(360px, 100%);
+  background: color-mix(in srgb, var(--bg-2) 92%, transparent);
+  backdrop-filter: blur(22px);
+  -webkit-backdrop-filter: blur(22px);
+  border-left: 1px solid var(--border);
+  box-shadow: -30px 0 80px rgba(0, 0, 0, 0.35);
+}
+
+.drawerHead {
+  padding: 20px 18px 14px;
+  border-bottom: 1px solid var(--border);
+  box-shadow: none;
+}
+
+.drawerHead h3 {
+  font-size: 1.02rem;
+  letter-spacing: -0.01em;
+}
+
+.membersList {
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.memberEntry {
+  width: 100%;
+  padding: 8px 10px;
+  gap: 10px;
+  border-radius: 11px;
+  border: none;
+  background: transparent;
+  text-align: left;
+}
+
+.memberEntry:hover {
+  background: color-mix(in srgb, var(--text-strong) 6%, transparent);
+}
+
+.memberEntryInfo strong {
+  font-weight: 600;
+}
+
+.memberStatus {
+  color: var(--accent) !important;
+  font-size: 0.71rem !important;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.drawerFoot {
+  padding: 14px;
+  border-top: 1px solid var(--border);
+}
+
+/* ---------- search ---------- */
+
+.searchPanel {
+  background: var(--glass);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  border-bottom: 1px solid var(--border);
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.18);
+}
+
+.searchPanelHead {
+  padding: 12px 16px;
+}
+
+.searchPanelHead input {
+  border-radius: 10px;
+  border: 1px solid var(--border-strong);
+  background: color-mix(in srgb, var(--bg-3) 92%, var(--bg));
+  padding: 9px 12px;
+}
+
+.searchResult {
+  border-radius: 10px;
+}
+
+/* ---------- profile ---------- */
+
+.profileBanner {
+  position: relative;
+  height: 92px;
+  margin: -18px -26px 0;
+  border-radius: 20px 20px 0 0;
+  opacity: 1;
+  overflow: hidden;
+}
+
+.profileBanner::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(120% 120% at 12% 0%, rgba(255, 255, 255, 0.28), transparent 58%),
+    linear-gradient(180deg, transparent, color-mix(in srgb, var(--panel) 55%, transparent));
+}
+
+.profileIdentity {
+  align-items: flex-end;
+  gap: 14px;
+  margin-top: -40px;
+  padding: 0 4px;
+  position: relative;
+  z-index: 1;
+}
+
+.profileIdentity .avatar {
+  margin-top: 0;
+  border: 4px solid var(--panel);
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.3);
+}
+
+.profileNames h3 {
+  font-size: 1.24rem;
+  letter-spacing: -0.02em;
+}
+
+.profileStatus {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  align-self: flex-start;
+  padding: 5px 12px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  border: 1px solid var(--accent-line);
+  color: var(--text);
+  font-size: 0.8rem;
+}
+
+.profileStatusEmoji {
+  font-size: 0.95rem;
+  line-height: 1;
+}
+
+.profileSection {
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--bg-3) 42%, transparent);
+}
+
+.profileMeta {
+  padding: 0 2px;
+}
+
+/* ---------- welcome / call ---------- */
+
+.welcomePane {
+  gap: 12px;
+}
+
+.welcomeMark {
+  width: 76px;
+  height: 76px;
+  border-radius: 24px;
+  font-size: 2rem;
+  background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 72%, #fff), var(--accent));
+  box-shadow: 0 18px 46px color-mix(in srgb, var(--accent) 35%, transparent);
+}
+
+.welcomePane h2 {
+  font-size: 1.45rem;
+  letter-spacing: -0.02em;
+}
+
+.welcomeHints span {
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--text-strong) 4%, transparent);
+  padding: 5px 11px;
+}
+
+.callBar {
+  border-radius: 18px;
+  background: color-mix(in srgb, var(--panel-2) 88%, transparent);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid var(--border-strong);
+  box-shadow: var(--shadow);
+}
+
+.callTile {
+  border-radius: 14px;
+}
+
+.offlineBar,
+.ringBanner {
+  border-radius: 12px;
+}
+
+/* ---------- responsive polish ---------- */
+
+@media (max-width: 900px) {
+  .sidebar {
+    padding: 8px;
+  }
+
+  .chatHeader {
+    height: 56px;
+    padding: 0 12px;
+  }
+
+  .messageList {
+    padding: 10px 6px 4px;
+  }
+
+  .message {
+    margin: 0 2px;
+    padding: var(--msg-py) 12px;
+    gap: 10px;
+  }
+
+  .composerWrap {
+    padding: 0 10px calc(10px + env(safe-area-inset-bottom));
+  }
+
+  .membersDrawer {
+    width: min(340px, 100%);
+  }
+}
+
+@media (max-width: 560px) {
+  .headerChannelText h1 {
+    font-size: 0.94rem;
+    max-width: 44vw;
+  }
+
+  .headerChannelText p {
+    display: none;
+  }
+
+  .headerChannelIcon {
+    display: none;
+  }
+
+  .messageList {
+    padding: 8px 4px 2px;
+  }
+
+  .message {
+    margin: 0;
+    padding-left: 10px;
+    padding-right: 10px;
+    border-radius: 10px;
+  }
+
+  .messageText {
+    font-size: 0.93rem;
+  }
+
+  .editActions > span {
+    display: none;
+  }
+
+  .drawerHead {
+    padding: 18px 14px 12px;
+  }
+
+  .profileBanner {
+    height: 78px;
+    margin: -16px -20px 0;
+  }
+
+  .profileIdentity {
+    margin-top: -34px;
+  }
+
+  .profileNames h3 {
+    font-size: 1.08rem;
+  }
+}
+
+/* Keep notch / home-bar insets after the height overrides above. */
+@supports (padding: env(safe-area-inset-top)) {
+  .chatHeader,
+  .sidebarBrand {
+    height: calc(58px + env(safe-area-inset-top));
+    padding-top: env(safe-area-inset-top);
+  }
+
+  @media (max-width: 900px) {
+    .chatHeader,
+    .sidebarBrand {
+      height: calc(54px + env(safe-area-inset-top));
+    }
+  }
+}
+
+/* Desktop must not show the mobile drawer button. */
+.iconBtn.mobileOnly {
+  display: none;
+}
+
+.profileIdentity {
+  align-items: flex-end;
+  margin-top: 0;
+}
+
+.profileIdentity .avatar {
+  margin-top: -40px;
+}
+
+.profileNames {
+  padding-top: 6px;
+}
+
+@media (max-width: 900px) {
+  .iconBtn.mobileOnly {
+    display: inline-flex;
+  }
+}
+
+@media (max-width: 560px) {
+  .profileIdentity {
+    margin-top: 0;
+  }
+
+  .profileIdentity .avatar {
+    margin-top: -34px;
+  }
+
+  .profileNames {
+    padding-top: 4px;
+  }
+}

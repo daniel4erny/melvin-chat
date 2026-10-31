@@ -263,12 +263,22 @@ func (d *DB) ListChannelMembers(id int64) ([]ChannelMember, error) {
 	members := []ChannelMember{}
 	for rows.Next() {
 		var m ChannelMember
-		var admin int
+		var admin, banned int
+		var bannedUntil sql.NullInt64
 		var settings string
-		if err := rows.Scan(&m.ID, &m.Username, &m.DisplayName, &m.AvatarColor, &m.Bio, &admin, &settings, &m.CreatedAt, &m.Role); err != nil {
+		if err := rows.Scan(
+			&m.ID, &m.Username, &m.DisplayName, &m.AvatarColor, &m.Bio, &admin,
+			&m.StatusEmoji, &m.StatusText, &banned, &m.BanReason, &bannedUntil,
+			&settings, &m.CreatedAt, &m.Role,
+		); err != nil {
 			return nil, err
 		}
 		m.Admin = admin != 0
+		m.Banned = banned != 0
+		if bannedUntil.Valid {
+			v := bannedUntil.Int64
+			m.BannedUntil = &v
+		}
 		m.Settings = decodeSettings(settings)
 		members = append(members, m)
 	}

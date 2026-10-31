@@ -122,3 +122,141 @@
 .inviteHint.ok {
   color: var(--success);
 }
+
+/* ============================================================
+   Modern skin — login / registration
+   ============================================================ */
+
+.authPage {
+  position: relative;
+  overflow: hidden;
+  gap: 18px;
+  background:
+    radial-gradient(900px 520px at 18% 8%, color-mix(in srgb, var(--accent) 24%, transparent), transparent 62%),
+    radial-gradient(760px 460px at 88% 92%, color-mix(in srgb, #ff5fa2 18%, transparent), transparent 60%),
+    var(--bg-3);
+}
+
+.authPage::before,
+.authPage::after {
+  content: "";
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(70px);
+  opacity: 0.45;
+  pointer-events: none;
+}
+
+.authPage::before {
+  width: 340px;
+  height: 340px;
+  top: -120px;
+  right: -60px;
+  background: color-mix(in srgb, var(--accent) 55%, transparent);
+}
+
+.authPage::after {
+  width: 300px;
+  height: 300px;
+  bottom: -140px;
+  left: -80px;
+  background: color-mix(in srgb, #ff5fa2 42%, transparent);
+}
+
+.authCard {
+  position: relative;
+  z-index: 1;
+  width: min(460px, 100%);
+  padding: 36px;
+  border-radius: 24px;
+  background: color-mix(in srgb, var(--panel) 88%, transparent);
+  border: 1px solid var(--border-strong);
+  box-shadow:
+    0 30px 80px rgba(0, 0, 0, 0.35),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  backdrop-filter: blur(22px) saturate(1.2);
+  -webkit-backdrop-filter: blur(22px) saturate(1.2);
+}
+
+[data-theme="light"] .authCard {
+  background: color-mix(in srgb, #ffffff 84%, transparent);
+  box-shadow:
+    0 26px 70px rgba(28, 39, 74, 0.18),
+    inset 0 1px 0 rgba(255, 255, 255, 0.8);
+}
+
+.authBrand {
+  margin-bottom: 22px;
+}
+
+.brandMark {
+  width: 52px;
+  height: 52px;
+  border-radius: 16px;
+  font-size: 1.55rem;
+  background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 70%, #fff), var(--accent));
+  box-shadow: 0 12px 30px color-mix(in srgb, var(--accent) 38%, transparent);
+}
+
+.brandName {
+  font-size: 1.25rem;
+  letter-spacing: -0.03em;
+}
+
+.authHead {
+  margin-bottom: 24px;
+}
+
+.authHead h1 {
+  font-size: 1.62rem;
+  letter-spacing: -0.035em;
+}
+
+.authHead p {
+  margin-top: 8px;
+  line-height: 1.5;
+}
+
+.authForm {
+  gap: 17px;
+}
+
+.authForm .btn.big {
+  margin-top: 6px;
+}
+
+.authHint {
+  margin-top: 20px;
+}
+
+.authVersion {
+  position: relative;
+  z-index: 1;
+  padding: 5px 12px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--text-strong) 5%, transparent);
+  border: 1px solid var(--border);
+}
+
+@media (max-width: 560px) {
+  .authPage {
+    padding: 16px;
+    padding-top: 28px;
+    gap: 14px;
+  }
+
+  .authCard {
+    padding: 26px 20px;
+    border-radius: 20px;
+  }
+
+  .authHead h1 {
+    font-size: 1.34rem;
+  }
+
+  .brandMark {
+    width: 46px;
+    height: 46px;
+    border-radius: 14px;
+  }
+}

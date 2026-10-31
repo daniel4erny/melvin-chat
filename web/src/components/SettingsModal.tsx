@@ -5,6 +5,7 @@ import { toast } from "../toast";
 import { clearLogs, downloadLogs, getLogs, type LogEntry } from "../logs";
 import type { Invite, User, UserSettings, WSStatus } from "../types";
 import { formatDateTime, validColor } from "../utils";
+import BanModal from "./BanModal";
 import { Icon, type IconName } from "./Icon";
 import { Avatar, Modal, Spinner } from "./ui";
 
@@ -48,6 +49,8 @@ export default function SettingsModal({
   const [displayName, setDisplayName] = useState(user.displayName);
   const [bio, setBio] = useState(user.bio);
   const [avatarColor, setAvatarColor] = useState(user.avatarColor);
+  const [statusEmoji, setStatusEmoji] = useState(user.statusEmoji);
+  const [statusText, setStatusText] = useState(user.statusText);
   const [settings, setSettings] = useState<UserSettings>(user.settings);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -62,6 +65,8 @@ export default function SettingsModal({
   const [users, setUsers] = useState<User[]>([]);
   const [usersLoading, setUsersLoading] = useState(false);
   const [busyUser, setBusyUser] = useState<number | null>(null);
+  const [userQuery, setUserQuery] = useState("");
+  const [banTarget, setBanTarget] = useState<User | null>(null);
   const [invites, setInvites] = useState<Invite[]>([]);
   const [invitesLoading, setInvitesLoading] = useState(false);
   const [inviteNote, setInviteNote] = useState("");
@@ -74,6 +79,8 @@ export default function SettingsModal({
     setDisplayName(user.displayName);
     setBio(user.bio);
     setAvatarColor(user.avatarColor);
+    setStatusEmoji(user.statusEmoji);
+    setStatusText(user.statusText);
     setSettings(user.settings);
     setError("");
     setTab("profile");
@@ -132,6 +139,22 @@ export default function SettingsModal({
       toast.success(res.user.admin ? `${res.user.displayName} je teď admin` : `${res.user.displayName} už není admin`);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Změna práv selhala");
+    } finally {
+      setBusyUser(null);
+    }
+  }
+
+  async function unbanUser(target: User) {
+    setBusyUser(target.id);
+    try {
+      const res = await api<{ user: User }>(`/api/users/${target.id}/unban`, {
+        method: "POST",
+        body: {},
+      });
+      setUsers((prev) => prev.map((u) => (u.id === res.user.id ? res.user : u)));
+      toast.success(`${res.user.displayName} je odbanovaný`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Odbanování selhalo");
     } finally {
       setBusyUser(null);
     }
@@ -212,6 +235,8 @@ export default function SettingsModal({
         displayName: displayName.trim(),
         bio: bio.trim(),
         avatarColor,
+        statusEmoji: statusEmoji.trim(),
+        statusText: statusText.trim(),
         settings,
       });
       toast.success("Nastavení uloženo");
@@ -274,8 +299,15 @@ export default function SettingsModal({
     });
   };
 
+  const filteredUsers = users.filter((member) => {
+    const q = userQuery.trim().toLowerCase();
+    if (!q) return true;
+    return member.username.toLowerCase().includes(q) || member.displayName.toLowerCase().includes(q);
+  });
+
   return (
-    <Modal
+    <>
+      <Modal
       open={open}
       onClose={close}
       wide
@@ -322,7 +354,34 @@ export default function SettingsModal({
                   <strong>{displayName || user.username}</strong>
                   <span>@{user.username}</span>
                   {user.admin && <span className="adminTag">admin</span>}
+                  {(statusEmoji.trim() || statusText.trim()) && (
+                    <span className="previewStatus">
+                      {statusEmoji.trim()} {statusText.trim()}
+                    </span>
+                  )}
                 </div>
+              </div>
+
+              <div className="statusFields">
+                <label className="field statusEmojiField">
+                  <span>Stavové emoji</span>
+                  <input
+                    value={statusEmoji}
+                    onChange={(e) => setStatusEmoji(e.target.value)}
+                    maxLength={8}
+                    placeholder="😀"
+                  />
+                </label>
+                <label className="field">
+                  <span>Vlastní stav</span>
+                  <input
+                    value={statusText}
+                    onChange={(e) => setStatusText(e.target.value)}
+                    maxLength={60}
+                    placeholder="Co zrovna děláš?"
+                  />
+                  <small>{statusText.length}/60</small>
+                </label>
               </div>
 
               <label className="field">
@@ -591,12 +650,23 @@ export default function SettingsModal({
           {tab === "users" && user.admin && (
             <div className="settingsSection">
               <div className="settingsBlock">
-                <h4>
-                  <Icon name="users" size={16} /> Uživatelé ({users.length})
-                </h4>
+                <div className="row spaceBetween">
+                  <h4>
+                    <Icon name="users" size={16} /> Uživatelé ({users.length})
+                  </h4>
+                  <div className="userSearch">
+                    <Icon name="search" size={14} />
+                    <input
+                      value={userQuery}
+                      onChange={(e) => setUserQuery(e.target.value)}
+                      placeholder="Hledat uživatele…"
+                      aria-label="Hledat uživatele"
+                    />
+                  </div>
+                </div>
                 <p className="muted">
-                  Admin může spravovat kanály, mazat cizí zprávy a vytvářet pozvánky. Práva měň kliknutím
-                  na tlačítko.
+                  Admin může spravovat kanály, mazat cizí zprávy, vytvářet pozvánky a udělovat bany.
+                  Ban okamžitě odhlásí všechny relace daného účtu.
                 </p>
                 {usersLoading && (
                   <div className="row gap muted small">
@@ -604,31 +674,69 @@ export default function SettingsModal({
                   </div>
                 )}
                 <div className="adminUserList">
-                  {users.map((member) => (
-                    <div className="adminUserRow" key={member.id}>
-                      <Avatar name={member.displayName} color={member.avatarColor} size={34} />
+                  {filteredUsers.map((member) => (
+                    <div className={`adminUserRow${member.banned ? " banned" : ""}`} key={member.id}>
+                      <Avatar name={member.displayName} color={member.avatarColor} size={36} />
                       <span className="adminUserInfo">
                         <strong>
                           {member.displayName}
                           {member.id === user.id && " (ty)"}
                         </strong>
                         <small>@{member.username}</small>
+                        {(member.statusEmoji || member.statusText) && (
+                          <small className="memberStatus">
+                            {member.statusEmoji} {member.statusText}
+                          </small>
+                        )}
+                        {member.banned && (
+                          <small className="banReasonText">
+                            ban {member.bannedUntil ? `do ${formatDateTime(member.bannedUntil)}` : "trvale"}
+                            {member.banReason ? ` · ${member.banReason}` : ""}
+                          </small>
+                        )}
                       </span>
                       {member.admin && <span className="adminTag">admin</span>}
-                      <button
-                        className={`btn tiny${member.admin ? " danger ghost" : ""}`}
-                        onClick={() => void toggleAdmin(member)}
-                        disabled={busyUser === member.id}
-                      >
-                        {busyUser === member.id ? (
-                          <Spinner size={14} />
-                        ) : (
-                          <Icon name={member.admin ? "userMinus" : "userPlus"} size={14} />
+                      {member.banned && <span className="banTag">ban</span>}
+                      <div className="adminUserActions">
+                        {member.id !== user.id && (
+                          <button
+                            className={`btn tiny${member.admin ? " danger ghost" : ""}`}
+                            onClick={() => void toggleAdmin(member)}
+                            disabled={busyUser === member.id}
+                          >
+                            {busyUser === member.id ? (
+                              <Spinner size={14} />
+                            ) : (
+                              <Icon name={member.admin ? "userMinus" : "userPlus"} size={14} />
+                            )}
+                            {member.admin ? "Odebrat admina" : "Udělat adminem"}
+                          </button>
                         )}
-                        {member.admin ? "Odebrat admina" : "Udělat adminem"}
-                      </button>
+                        {member.id !== user.id &&
+                          (member.banned ? (
+                            <button
+                              className="btn tiny"
+                              onClick={() => void unbanUser(member)}
+                              disabled={busyUser === member.id}
+                            >
+                              <Icon name="check" size={14} /> Odbanovat
+                            </button>
+                          ) : (
+                            <button
+                              className="btn tiny danger ghost"
+                              onClick={() => setBanTarget(member)}
+                              disabled={busyUser === member.id || member.admin}
+                              title={member.admin ? "Admina nejde zabanovat" : "Zabanovat účet"}
+                            >
+                              <Icon name="ban" size={14} /> Ban
+                            </button>
+                          ))}
+                      </div>
                     </div>
                   ))}
+                  {!usersLoading && filteredUsers.length === 0 && (
+                    <p className="muted small">Nikdo takový tu není.</p>
+                  )}
                 </div>
               </div>
             </div>
@@ -827,6 +935,17 @@ export default function SettingsModal({
           )}
         </div>
       </div>
-    </Modal>
+      </Modal>
+      {banTarget && (
+        <BanModal
+          user={banTarget}
+          onClose={() => setBanTarget(null)}
+          onBanned={(updated) => {
+            setUsers((prev) => prev.map((u) => (u.id === updated.id ? updated : u)));
+            setBanTarget(null);
+          }}
+        />
+      )}
+    </>
   );
 }

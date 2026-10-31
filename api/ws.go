@@ -66,7 +66,7 @@ func (h *Hub) ServeWS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	u, err := h.db.SessionUser(hashToken(token))
-	if err != nil {
+	if err != nil || u.BanActive() {
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
@@ -249,6 +249,18 @@ func (h *Hub) BroadcastUsers(userIDs []int64, payload any) {
 	h.mu.RUnlock()
 	for c := range seen {
 		c.enqueueRaw(data)
+	}
+}
+
+func (h *Hub) DisconnectUser(userID int64) {
+	h.mu.RLock()
+	clients := []*Client{}
+	for c := range h.byUser[userID] {
+		clients = append(clients, c)
+	}
+	h.mu.RUnlock()
+	for _, c := range clients {
+		_ = c.conn.Close()
 	}
 }
 

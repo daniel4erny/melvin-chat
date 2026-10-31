@@ -10,8 +10,11 @@ kanály, hlasovky, hovory, ankety a soubory na vašem vlastním serveru.
   pozvánky, které admin vygeneruje v nastavení.
 - **Kanály** — veřejné (všichni, i nově příchozí) a soukromé (jen pozvaní).
   Vlastník kanálu spravuje členy, téma a viditelnost.
-- **Zprávy** — reakce, odpovědi, mazání, historie po stránkách,
-  nepřečtené zprávy, indikátor psaní.
+- **Zprávy** — reakce, odpovědi, mazání, úprava vlastních zpráv, historie po
+  stránkách, nepřečtené zprávy, indikátor psaní.
+- **Profily a moderace** — vlastní stav (emoji + text), bio, barva, seznam členů
+  s online stavem. Admin může udělit ban s důvodem a délkou (hodiny až trvale),
+  ban okamžitě ukončí relace a zablokuje přihlášení i WebSocket.
 - **Hlasovky** — nahrání přímo v prohlížeči (MediaRecorder), přehrávání v chatu.
 - **Hovory** — skupinový WebRTC mesh hovor v kanálu, mikrofon, kamera, ztlumení,
   zvonek pro ostatní členy.

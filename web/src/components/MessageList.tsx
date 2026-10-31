@@ -19,6 +19,7 @@ export default function MessageList({
   onLoadOlder,
   onReact,
   onDelete,
+  onEdit,
   onReply,
   onVote,
   onClosePoll,
@@ -38,6 +39,7 @@ export default function MessageList({
   onLoadOlder: () => void;
   onReact: (message: Message, emoji: string) => void;
   onDelete: (message: Message) => void;
+  onEdit: (message: Message, text: string) => Promise<void>;
   onReply: (message: Message) => void;
   onVote: (poll: Poll, optionIds: number[]) => void;
   onClosePoll: (poll: Poll) => void;
@@ -117,6 +119,7 @@ export default function MessageList({
         flash={message.id === focusId}
         onReact={onReact}
         onDelete={onDelete}
+        onEdit={onEdit}
         onReply={onReply}
         onVote={onVote}
         onClosePoll={onClosePoll}

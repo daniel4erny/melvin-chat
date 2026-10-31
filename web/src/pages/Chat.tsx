@@ -153,6 +153,17 @@ export default function Chat() {
     }
   }, []);
 
+  const refreshMembers = useCallback(async () => {
+    const id = activeRef.current;
+    if (!id) return;
+    try {
+      const res = await api<{ members: ChannelMember[] }>(`/api/channels/${id}`);
+      setMembers(res.members);
+    } catch {
+      // member list is refreshed on the next channel open anyway
+    }
+  }, []);
+
   useEffect(() => {
     void refreshChannels();
   }, [refreshChannels]);
@@ -289,6 +300,19 @@ export default function Chat() {
     },
     [addMessage, markRead],
   );
+
+  const editMessage = useCallback(async (message: Message, text: string) => {
+    try {
+      const res = await api<{ message: Message }>(`/api/messages/${message.id}`, {
+        method: "PATCH",
+        body: { text },
+      });
+      setMessages((prev) => prev.map((m) => (m.id === message.id ? res.message : m)));
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Úprava zprávy selhala");
+      throw err;
+    }
+  }, []);
 
   const deleteMessage = useCallback(async (message: Message) => {
     if (!window.confirm("Smazat tuhle zprávu?")) return;
@@ -448,6 +472,13 @@ export default function Chat() {
         }
         break;
       }
+      case "message:updated": {
+        if (event.message) {
+          const updated = event.message;
+          setMessages((prev) => prev.map((m) => (m.id === updated.id ? updated : m)));
+        }
+        break;
+      }
       case "reaction:update": {
         if (typeof event.messageId === "number" && event.reactions) {
           setMessages((prev) =>
@@ -496,7 +527,26 @@ export default function Chat() {
         break;
       }
       case "user:updated": {
-        if (event.user?.id === me.id) void refresh();
+        if (event.user) {
+          const updated = event.user;
+          setMembers((prev) =>
+            prev.map((member) => (member.id === updated.id ? { ...member, ...updated } : member)),
+          );
+          setProfileUser((prev) => (prev && prev.id === updated.id ? updated : prev));
+          if (updated.id === me.id) void refresh();
+        }
+        break;
+      }
+      case "users:changed": {
+        void refreshMembers();
+        break;
+      }
+      case "user:banned": {
+        const reason = typeof event.reason === "string" && event.reason ? `: ${event.reason}` : "";
+        if (event.userId === me.id) {
+          toast.error(`Tvůj účet byl zabanován${reason}`);
+          window.setTimeout(() => void logout(), 900);
+        }
         break;
       }
       case "call:ring": {
@@ -610,7 +660,11 @@ export default function Chat() {
             <Avatar name={me.displayName} color={me.avatarColor} size={36} online={wsStatus === "online"} />
             <span className="userInfo">
               <strong>{me.displayName}</strong>
-              <small>@{me.username}</small>
+              <small>
+                {me.statusEmoji || me.statusText
+                  ? `${me.statusEmoji} ${me.statusText}`.trim()
+                  : `@${me.username}`}
+              </small>
             </span>
             <Icon name="settings" size={16} />
           </button>
@@ -758,6 +812,7 @@ export default function Chat() {
                 onLoadOlder={() => void loadOlder()}
                 onReact={(message, emoji) => void react(message, emoji)}
                 onDelete={(message) => void deleteMessage(message)}
+                onEdit={editMessage}
                 onReply={setReplyTo}
                 onVote={(poll, ids) => void votePoll(poll, ids)}
                 onClosePoll={(poll) => void closePoll(poll)}
@@ -850,8 +905,14 @@ export default function Chat() {
                         {member.id === me.id && " (ty)"}
                       </strong>
                       <small>@{member.username}</small>
+                      {(member.statusEmoji || member.statusText) && (
+                        <small className="memberStatus" title="Stav">
+                          {member.statusEmoji} {member.statusText}
+                        </small>
+                      )}
                     </span>
                     {member.role === "owner" && <span className="ownerTag">vlastník</span>}
+                    {member.banned && <span className="banTag">ban</span>}
                     {member.admin && <span className="adminTag">admin</span>}
                   </button>
                 );

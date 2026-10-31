@@ -19,6 +19,11 @@ export type User = {
   avatarColor: string;
   bio: string;
   admin: boolean;
+  statusEmoji: string;
+  statusText: string;
+  banned: boolean;
+  banReason: string;
+  bannedUntil?: number;
   settings: UserSettings;
   createdAt: number;
 };

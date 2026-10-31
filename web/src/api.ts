@@ -100,7 +100,12 @@ export async function api<T>(path: string, opts: RequestOptions = {}): Promise<T
       data && typeof data === "object" && "error" in data && typeof data.error === "string"
         ? data.error
         : `Chyba ${res.status}`;
-    if (res.status === 401 && !path.startsWith("/api/auth/login") && !path.startsWith("/api/auth/register")) {
+    const banned = res.status === 403 && /zabanovan/i.test(message);
+    if (
+      (res.status === 401 || banned) &&
+      !path.startsWith("/api/auth/login") &&
+      !path.startsWith("/api/auth/register")
+    ) {
       unauthorizedHandler?.();
     }
     throw new ApiError(res.status, message);
