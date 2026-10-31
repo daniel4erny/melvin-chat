@@ -972,7 +972,14 @@ export default function Chat() {
           </button>
 
           {activeChannel ? (
-            <div className={`headerChannel${isDM ? " dmHeader" : ""}`}>
+            <div
+              className={`headerChannel${isDM ? " dmHeader dmHeaderClickable" : ""}`}
+              onClick={() => {
+                if (isDM && dmPeer) setProfileUser(dmPeer);
+              }}
+              role={isDM ? "button" : undefined}
+              title={isDM ? "Otevřít profil" : undefined}
+            >
               <span className="headerChannelIcon">
                 {isDM && dmPeer ? (
                   <Avatar
