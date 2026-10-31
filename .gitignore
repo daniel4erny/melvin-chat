@@ -1,2 +1,10 @@
 .env
 domat.db
+
+# compiled binaries / local data
+api/api
+api/server
+data/
+*.db
+*.db-shm
+*.db-wal

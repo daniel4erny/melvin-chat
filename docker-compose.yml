@@ -5,30 +5,44 @@ services:
     ports:
       - "127.0.0.1:8000:8000"
     environment:
-      PASSWORD: ${PASSWORD:?set PASSWORD in .env}
+      API_URL: http://api:8000
+      PORT: "8000"
+    depends_on:
+      api:
+        condition: service_healthy
     healthcheck:
       # probe with bun itself so it does not depend on curl/wget in the image
-      test: ["CMD", "bun", "-e", "fetch('http://localhost:8000/healthz').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      test:
+        [
+          "CMD",
+          "bun",
+          "-e",
+          "fetch('http://localhost:8000/healthz').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))",
+        ]
       interval: 30s
       timeout: 5s
       retries: 3
-      start_period: 10s
+      start_period: 15s
 
-  livechat_api:
+  api:
     build: ./api
     restart: unless-stopped
     environment:
-      PASSWORD: ${PASSWORD:?set PASSWORD in .env}
-      DB_PATH: /data/domat.db
+      PORT: "8000"
+      DB_PATH: /data/melvin.db
+      UPLOAD_DIR: /data/uploads
+      MAX_UPLOAD_MB: ${MAX_UPLOAD_MB:-500}
+      REGISTRATION_CODE: ${REGISTRATION_CODE:-}
+      ICE_SERVERS: ${ICE_SERVERS:-stun:stun.l.google.com:19302}
+      VERSION: ${VERSION:-0.1.0}
     volumes:
-      - livechat_data:/data
+      - melvin_data:/data
     healthcheck:
-      # plain GET without upgrade returns "WebSocket Server is alive!"
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8000/"]
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8000/healthz"]
       interval: 30s
       timeout: 5s
       retries: 3
       start_period: 10s
 
 volumes:
-  livechat_data:
+  melvin_data:

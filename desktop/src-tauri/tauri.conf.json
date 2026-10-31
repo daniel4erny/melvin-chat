@@ -1,0 +1,55 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Melvin",
+  "version": "0.1.0",
+  "identifier": "com.melvin.chat",
+  "build": {
+    "frontendDist": "../../web/dist",
+    "devUrl": "http://localhost:5173",
+    "beforeDevCommand": "bun run web:dev",
+    "beforeBuildCommand": "bun run web:build"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "Melvin",
+        "width": 1240,
+        "height": 820,
+        "minWidth": 380,
+        "minHeight": 520,
+        "center": true,
+        "resizable": true,
+        "fullscreen": false,
+        "decorations": true,
+        "backgroundColor": "#070d18"
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "category": "SocialNetworking",
+    "shortDescription": "Soukromý chat pro partu",
+    "longDescription": "Melvin je self-hosted chat s kanály, hlasovkami, hovory, anketami a soubory až do 500 MB.",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "linux": {
+      "deb": {
+        "depends": []
+      }
+    },
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser"
+      }
+    }
+  }
+}

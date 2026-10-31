@@ -1,12 +1,26 @@
-import { Routes, Route } from "react-router-dom";
-import Home from "./pages/Home";
-import LiveChat from "./pages/LiveChat";
+import { useEffect } from "react";
+import { useAuth } from "./auth";
+import Login from "./pages/Login";
+import Chat from "./pages/Chat";
+import { Spinner } from "./components/ui";
+import "./styles/app.css";
 
 export default function App() {
-  return (
-    <Routes>
-      <Route path="/" element={<Home />} />
-      <Route path="/liveChat" element={<LiveChat />} />
-    </Routes>
-  );
+  const { user, loading } = useAuth();
+
+  useEffect(() => {
+    document.documentElement.dataset.booted = "1";
+  }, []);
+
+  if (loading) {
+    return (
+      <div className="bootScreen">
+        <div className="bootMark">M</div>
+        <Spinner size={26} />
+        <p>Startuji Melvin…</p>
+      </div>
+    );
+  }
+
+  return user ? <Chat /> : <Login />;
 }

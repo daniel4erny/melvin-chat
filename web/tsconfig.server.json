@@ -19,5 +19,5 @@
 
     "types": ["bun"]
   },
-  "include": ["auth.ts", "main.ts"]
+  "include": ["main.ts"]
 }

@@ -1,211 +1,272 @@
 package main
 
 import (
-	"crypto/sha256"
-	"crypto/subtle"
-	"encoding/hex"
-	"net/http"
-	"time"
-	"os"
-	"github.com/gorilla/websocket"
+	"bufio"
+	"context"
+	"encoding/json"
+	"errors"
+	"io"
 	"log"
-	"strings"
+	"net"
+	"net/http"
+	"os"
+	"os/signal"
+	"path/filepath"
 	"strconv"
+	"strings"
+	"syscall"
+	"time"
 )
 
-type Hub struct {
-	conns map[string]*websocket.Conn
-	reg_chan chan *websocket.Conn
-	del_chan chan *websocket.Conn
-	write_chan chan []byte
-	store *DB
+const versionDefault = "0.1.0"
+
+type App struct {
+	db          *DB
+	hub         *Hub
+	uploadDir   string
+	maxUploadMB int
+	regCode     string
+	iceServers  []string
+	version     string
+	limiter     *rateLimiter
 }
 
-func newHub(store *DB) *Hub { // hub constructor
-	return &Hub{
-		conns: make(map[string]*websocket.Conn),
-		reg_chan: make(chan *websocket.Conn),
-		del_chan: make(chan *websocket.Conn),
-		write_chan: make(chan []byte),
-		store: store,
+func main() {
+	port := env("PORT", "8000")
+	dbPath := env("DB_PATH", "/data/melvin.db")
+	uploadDir := env("UPLOAD_DIR", "/data/uploads")
+	maxUploadMB, _ := strconv.Atoi(env("MAX_UPLOAD_MB", "500"))
+	if maxUploadMB < 1 {
+		maxUploadMB = 500
 	}
-}
+	regCode := os.Getenv("REGISTRATION_CODE")
+	version := env("VERSION", versionDefault)
 
-func (h *Hub) Register(conn *websocket.Conn){
-	pongWait := time.Second * 15
-	conn.SetPongHandler(func(appData string) error {
-        log.Println("PONG FROM: " + conn.RemoteAddr().String())
-        return conn.SetReadDeadline(time.Now().Add(pongWait))
-    })
-
-	go func() {
-	    ticker := time.NewTicker(pongWait / 2)
-	    defer ticker.Stop()
-    	for {
-            select {
-            case <-ticker.C:
-                if err := conn.WriteMessage(websocket.PingMessage, nil); err != nil {
-                    log.Println("PING error:", err)
-                    h.Delete(conn)
-                    return
-                }
-                    log.Println("PING TO: " + conn.RemoteAddr().String())
-            }
-    	}
-	}()
-	h.reg_chan <- conn
-}
-
-func (h *Hub) Delete(conn *websocket.Conn){
-	h.del_chan <- conn
-}
-
-func (h *Hub) Broadcast(message []byte) {
-    h.write_chan <- message
-}
-
-func (h *Hub) Run() {
-	for{
-		select{
-		case conn := <- h.reg_chan:
-			h.conns[conn.RemoteAddr().String()] = conn
-			log.Println("REG: " + conn.RemoteAddr().String())
-
-		case conn := <- h.del_chan:
-			_, ok := h.conns[conn.RemoteAddr().String()]
-
-			if ok {
-				delete(h.conns, conn.RemoteAddr().String())
-				conn.Close()
-			}
-
-			log.Println("DEL: " + conn.RemoteAddr().String())
-
-		case message := <- h.write_chan:
-		    text := string(message)
-		    message, err := h.store.Save(text)
-			if err != nil {
-                log.Println("DB save error:", err)
-                continue
-            }
-			for id, conn := range h.conns{
-				err := conn.WriteMessage(websocket.TextMessage, message)
-				log.Printf("sending %s to %s", message, id)
-				if err != nil {
-					log.Println(err)
-					delete(h.conns, id)
-					conn.Close()
-				}
-			}
-
-			log.Println("MSG: " + string(message))
+	iceServers := []string{}
+	for _, s := range strings.Split(env("ICE_SERVERS", "stun:stun.l.google.com:19302"), ",") {
+		if s = strings.TrimSpace(s); s != "" {
+			iceServers = append(iceServers, s)
 		}
 	}
-}
 
-// token set as a cookie by the web server after basic auth, see web/auth.ts
-var authToken string
-
-func authorized(r *http.Request) bool {
-	cookie, err := r.Cookie("domat_auth")
-	if err != nil {
-		return false
-	}
-	return subtle.ConstantTimeCompare([]byte(cookie.Value), []byte(authToken)) == 1
-}
-
-var upgrader = websocket.Upgrader{
-	CheckOrigin: func(r *http.Request) bool {
-		return true
-	},
-}
-
-func (h *Hub) Serve(w http.ResponseWriter, r *http.Request) {
-	if r.Header.Get("Upgrade") != "websocket" {
-        w.WriteHeader(http.StatusOK)
-        w.Write([]byte("WebSocket Server is alive!"))
-        return
-    }
-
-	if !authorized(r) {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
-		return
-	}
-
-	conn, err := upgrader.Upgrade(w, r, nil)
-	if err != nil {
-		log.Println("Upgrade error:", err)
-		return
-	}
-
-	h.Register(conn)
-
-	go func(){
-		defer h.Delete(conn)
-
-		for {
-			_, message, err := conn.ReadMessage()
-			text := string(message)
-			if strings.HasPrefix(text, "/") {
-			    if strings.HasPrefix(text, "/last") {
-                    parts := strings.Split(text, " ")
-                    if len(parts) != 2 {
-                        conn.WriteMessage(websocket.TextMessage, []byte("#ERROR Usage: /last <page_number>"))
-                        continue
-                    }
-                    page, err := strconv.Atoi(parts[1])
-                    if err != nil {
-                        conn.WriteMessage(websocket.TextMessage, []byte("#ERROR " + err.Error()))
-                        continue
-                    }
-                    messages, err := h.store.Last(page)
-                    if err != nil {
-                        conn.WriteMessage(websocket.TextMessage, []byte("#ERROR " + err.Error()))
-                        continue
-                    }
-                    conn.WriteMessage(websocket.TextMessage, []byte(messages))
-                    continue
-				}
-            }
-			if err != nil {
-				log.Println("Read error:", err)
-				break
-			}
-			h.Broadcast(message)
+	if dir := filepath.Dir(dbPath); dir != "" && dir != "." {
+		if err := os.MkdirAll(dir, 0o750); err != nil {
+			log.Fatalf("db dir: %v", err)
 		}
-	}()
-}
-
-func main(){
-	port := os.Getenv("PORT")
-	if port == "" {
-		port = "8000"
 	}
-
-	password := os.Getenv("PASSWORD")
-	if password == "" {
-		log.Fatal("PASSWORD env variable is not set, refusing to start")
-	}
-	sum := sha256.Sum256([]byte("domat:" + password))
-	authToken = hex.EncodeToString(sum[:])
-
-	dbPath := os.Getenv("DB_PATH")
-	if dbPath == "" {
-		dbPath = "/data/domat.db"
-	}
-
 	store, err := openDB(dbPath)
 	if err != nil {
-		log.Fatal("DB open error: ", err)
+		log.Fatalf("db: %v", err)
 	}
-	_ = store
+	defer store.Close()
 
-	hub := newHub(store)
-	go hub.Run()
+	app := &App{
+		db:          store,
+		uploadDir:   uploadDir,
+		maxUploadMB: maxUploadMB,
+		regCode:     regCode,
+		iceServers:  iceServers,
+		version:     version,
+		limiter:     newRateLimiter(),
+	}
+	if err := app.ensureUploadDirs(); err != nil {
+		log.Fatalf("uploads: %v", err)
+	}
+	app.hub = newHub(store)
 
-	http.HandleFunc("/", hub.Serve)
+	go func() {
+		app.cleanupUploads()
+		t := time.NewTicker(time.Hour)
+		defer t.Stop()
+		for range t.C {
+			app.cleanupUploads()
+		}
+	}()
 
-	log.Println("READY")
+	mux := http.NewServeMux()
 
-	http.ListenAndServe(":"+port, nil)
+	mux.HandleFunc("GET /healthz", app.health)
+	mux.HandleFunc("GET /api/health", app.health)
+	mux.HandleFunc("GET /api/config", app.config)
+
+	mux.HandleFunc("POST /api/auth/register", app.register)
+	mux.HandleFunc("POST /api/auth/login", app.login)
+	mux.HandleFunc("POST /api/auth/logout", app.auth(app.logout))
+	mux.HandleFunc("GET /api/auth/me", app.auth(app.me))
+
+	mux.HandleFunc("PATCH /api/me", app.auth(app.updateMe))
+	mux.HandleFunc("POST /api/me/password", app.auth(app.changePassword))
+	mux.HandleFunc("GET /api/users", app.auth(app.listUsers))
+
+	mux.HandleFunc("GET /api/channels", app.auth(app.listChannels))
+	mux.HandleFunc("POST /api/channels", app.auth(app.createChannel))
+	mux.HandleFunc("GET /api/channels/{id}", app.auth(app.getChannel))
+	mux.HandleFunc("PATCH /api/channels/{id}", app.auth(app.updateChannel))
+	mux.HandleFunc("DELETE /api/channels/{id}", app.auth(app.deleteChannel))
+	mux.HandleFunc("POST /api/channels/{id}/leave", app.auth(app.leaveChannel))
+	mux.HandleFunc("POST /api/channels/{id}/read", app.auth(app.markRead))
+	mux.HandleFunc("GET /api/channels/{id}/messages", app.auth(app.listMessages))
+	mux.HandleFunc("POST /api/channels/{id}/messages", app.auth(app.sendMessage))
+	mux.HandleFunc("GET /api/channels/{id}/search", app.auth(app.searchMessages))
+	mux.HandleFunc("POST /api/channels/{id}/polls", app.auth(app.createPoll))
+
+	mux.HandleFunc("DELETE /api/messages/{id}", app.auth(app.deleteMessage))
+	mux.HandleFunc("POST /api/messages/{id}/reactions", app.auth(app.react))
+
+	mux.HandleFunc("POST /api/polls/{id}/vote", app.auth(app.votePoll))
+	mux.HandleFunc("POST /api/polls/{id}/close", app.auth(app.closePoll))
+
+	mux.HandleFunc("POST /api/uploads/init", app.auth(app.initUpload))
+	mux.HandleFunc("GET /api/uploads/{id}", app.auth(app.uploadStatus))
+	mux.HandleFunc("PUT /api/uploads/{id}/chunk", app.auth(app.uploadChunk))
+	mux.HandleFunc("POST /api/uploads/{id}/complete", app.auth(app.completeUpload))
+
+	mux.HandleFunc("GET /api/files/{id}", app.auth(app.serveFile))
+	mux.HandleFunc("/ws", app.hub.ServeWS)
+
+	handler := securityHeaders(cors(recoverer(logRequests(mux))))
+
+	srv := &http.Server{
+		Addr:              ":" + port,
+		Handler:           handler,
+		ReadHeaderTimeout: 15 * time.Second,
+		// no WriteTimeout: uploads/downloads may legitimately take a long time
+	}
+
+	go func() {
+		log.Printf("Melvin API %s listening on :%s (uploads dir %s, max %d MB)", version, port, uploadDir, maxUploadMB)
+		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			log.Fatalf("listen: %v", err)
+		}
+	}()
+
+	stop := make(chan os.Signal, 1)
+	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
+	<-stop
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	_ = srv.Shutdown(ctx)
+	store.Close()
+	log.Println("bye")
+}
+
+func env(key, fallback string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return fallback
+}
+
+func (a *App) health(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "version": a.version})
+}
+
+// ---- http helpers ----
+
+func writeJSON(w http.ResponseWriter, status int, v any) {
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(v)
+}
+
+func writeErr(w http.ResponseWriter, status int, msg string) {
+	writeJSON(w, status, map[string]any{"error": msg})
+}
+
+func readJSON(r *http.Request, dst any) error {
+	defer r.Body.Close()
+	dec := json.NewDecoder(io.LimitReader(r.Body, 1<<20))
+	if err := dec.Decode(dst); err != nil {
+		return err
+	}
+	return nil
+}
+
+func clientIP(r *http.Request) string {
+	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+		return strings.TrimSpace(strings.Split(xff, ",")[0])
+	}
+	if xr := r.Header.Get("X-Real-IP"); xr != "" {
+		return xr
+	}
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr
+	}
+	return host
+}
+
+// ---- middleware ----
+
+type statusRecorder struct {
+	http.ResponseWriter
+	status int
+}
+
+func (s *statusRecorder) WriteHeader(code int) {
+	s.status = code
+	s.ResponseWriter.WriteHeader(code)
+}
+
+// Unwrap lets http.NewResponseController reach the real writer.
+func (s *statusRecorder) Unwrap() http.ResponseWriter { return s.ResponseWriter }
+
+// Hijack is required by the WebSocket upgrader; without it /ws would 500.
+func (s *statusRecorder) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	h, ok := s.ResponseWriter.(http.Hijacker)
+	if !ok {
+		return nil, nil, errors.New("hijacking not supported")
+	}
+	return h.Hijack()
+}
+
+func (s *statusRecorder) Flush() {
+	if f, ok := s.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
+}
+
+func logRequests(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		start := time.Now()
+		rec := &statusRecorder{ResponseWriter: w, status: 200}
+		next.ServeHTTP(rec, r)
+		log.Printf("%s %s %d %s", r.Method, r.URL.Path, rec.status, time.Since(start).Round(time.Millisecond))
+	})
+}
+
+func recoverer(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer func() {
+			if rec := recover(); rec != nil {
+				log.Printf("panic on %s %s: %v", r.Method, r.URL.Path, rec)
+				writeErr(w, http.StatusInternalServerError, "Interní chyba serveru")
+			}
+		}()
+		next.ServeHTTP(w, r)
+	})
+}
+
+func cors(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, Range")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PATCH, PUT, DELETE, HEAD, OPTIONS")
+		w.Header().Set("Access-Control-Expose-Headers", "Content-Length, Content-Range, Accept-Ranges, Content-Disposition")
+		w.Header().Set("Access-Control-Max-Age", "86400")
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+func securityHeaders(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("Referrer-Policy", "no-referrer")
+		w.Header().Set("X-Frame-Options", "DENY")
+		next.ServeHTTP(w, r)
+	})
 }
