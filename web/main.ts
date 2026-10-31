@@ -51,7 +51,16 @@ async function serveStatic(request: Request): Promise<Response> {
   return new Response("Not Found", { status: 404 });
 }
 
-async function proxyApi(request: Request): Promise<Response> {
+function isPrivateAddress(address: string): boolean {
+  if (address === "::1" || address.startsWith("fc") || address.startsWith("fd") || address.startsWith("fe80:")) {
+    return true;
+  }
+  if (address.startsWith("127.") || address.startsWith("10.") || address.startsWith("192.168.")) return true;
+  const match = /^172\.(\d+)\./.exec(address);
+  return Boolean(match && Number(match[1]) >= 16 && Number(match[1]) <= 31);
+}
+
+async function proxyApi(request: Request, clientAddress?: string): Promise<Response> {
   const url = new URL(request.url);
   const target = `${API_URL}${url.pathname}${url.search}`;
 
@@ -60,6 +69,11 @@ async function proxyApi(request: Request): Promise<Response> {
   headers.delete("connection");
   headers.delete("upgrade");
   headers.delete("accept-encoding"); // keep Content-Length honest when streaming
+  // Preserve the real client address for moderation when no upstream proxy
+  // already supplied it.
+  if (clientAddress && (!headers.has("x-forwarded-for") || !isPrivateAddress(clientAddress))) {
+    headers.set("X-Forwarded-For", clientAddress);
+  }
 
   const init: RequestInit & { duplex?: "half" } = {
     method: request.method,
@@ -146,7 +160,7 @@ const server = Bun.serve<SocketData>({
 
     if (url.pathname.startsWith("/api/")) {
       try {
-        return await proxyApi(request);
+        return await proxyApi(request, srv.requestIP(request)?.address);
       } catch (err) {
         console.error("API proxy error:", err);
         return Response.json(

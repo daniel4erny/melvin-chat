@@ -5647,3 +5647,51 @@ body {
   text-decoration: underline;
 }
 
+/* ---------- moderation: IP history ---------- */
+
+.ipList {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 6px;
+}
+
+.ipRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 9px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--text-strong) 4%, transparent);
+  border: 1px solid var(--border);
+}
+
+.ipInfo {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.ipInfo code {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text-strong);
+  overflow-wrap: anywhere;
+}
+
+.ipInfo span {
+  font-size: 0.68rem;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ipRow .iconBtn {
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+}
+

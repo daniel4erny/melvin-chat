@@ -147,11 +147,20 @@ export type UserStats = {
   sharedChannels: SharedChannel[];
 };
 
+export type UserIP = {
+  ip: string;
+  firstSeen: number;
+  lastSeen: number;
+  hits: number;
+  userAgent: string;
+};
+
 export type UserProfileResponse = {
   user: User;
   stats: UserStats;
   online: boolean;
   timeoutLeft: number;
+  ips?: UserIP[];
 };
 
 export type WSStatus = "connecting" | "online" | "offline";

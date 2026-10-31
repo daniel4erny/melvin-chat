@@ -265,6 +265,42 @@ export default function ProfileCard({
             </div>
           )}
 
+          {me.admin && profile?.ips && (
+            <div className="profileSection ipSection">
+              <h4>IP adresy</h4>
+              {profile.ips.length === 0 ? (
+                <p className="muted">Zatím žádná zaznamenaná IP.</p>
+              ) : (
+                <div className="ipList">
+                  {profile.ips.map((entry) => (
+                    <div className="ipRow" key={entry.ip}>
+                      <div className="ipInfo">
+                        <code>{entry.ip}</code>
+                        <span>
+                          naposledy {formatLastSeen(entry.lastSeen)} · {entry.hits}×
+                          {entry.userAgent ? ` · ${entry.userAgent.slice(0, 80)}` : ""}
+                        </span>
+                      </div>
+                      <button
+                        className="iconBtn"
+                        title="Kopírovat IP"
+                        aria-label="Kopírovat IP"
+                        onClick={() => {
+                          void navigator.clipboard
+                            .writeText(entry.ip)
+                            .then(() => toast.success("IP zkopírována"))
+                            .catch(() => toast.error("Kopírování selhalo"));
+                        }}
+                      >
+                        <Icon name="copy" size={14} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
           <div className="profileMeta">
             <span>
               <Icon name="clock" size={14} /> Na Melvinu od {formatDateTime(shown.createdAt)}
