@@ -4,25 +4,30 @@
   --accent: #5865f2;
   --accent-ink: #ffffff;
   --font-scale: 1;
-  --bg: #14161d;
-  --bg-2: #0e1015;
-  --bg-3: #0a0c10;
-  --panel: #1a1d26;
-  --panel-2: #232734;
-  --panel-3: #2b3040;
-  --text: #d9dce6;
-  --text-strong: #f5f7fc;
-  --muted: #8e96ab;
-  --border: rgba(255, 255, 255, 0.07);
-  --border-strong: rgba(255, 255, 255, 0.12);
-  --danger: #f4565c;
-  --danger-soft: rgba(244, 86, 92, 0.12);
-  --success: #34d399;
-  --warning: #f5b942;
-  --link: #6bb6ff;
-  --shadow: 0 24px 70px rgba(0, 0, 0, 0.55);
+  --bg: #313338;
+  --bg-2: #2b2d31;
+  --bg-3: #1e1f22;
+  --panel: #2b2d31;
+  --panel-2: #313338;
+  --panel-3: #3f4147;
+  --text: #dbdee1;
+  --text-strong: #f2f3f5;
+  --muted: #949ba4;
+  --border: rgba(255, 255, 255, 0.055);
+  --border-strong: rgba(255, 255, 255, 0.11);
+  --danger: #f23f43;
+  --danger-soft: rgba(242, 63, 67, 0.12);
+  --success: #23a55a;
+  --warning: #f0b232;
+  --link: #00a8fc;
+  --shadow: 0 24px 70px rgba(0, 0, 0, 0.5);
   --radius: 14px;
-  --sidebar-w: 252px;
+  --sidebar-w: 260px;
+  --msg-hover: #35373c;
+  --user-panel: #232428;
+  --input-bg: #383a40;
+  --rail-bg: #2b2d31;
+  --elevated: #111214;
   --msg-py: 4px;
   --msg-gap: 0px;
   --glass: rgba(20, 22, 29, 0.72);
@@ -31,24 +36,29 @@
 }
 
 [data-theme="light"] {
-  --bg: #f6f7fb;
-  --bg-2: #eef0f7;
-  --bg-3: #ffffff;
+  --bg: #ffffff;
+  --bg-2: #f2f3f5;
+  --bg-3: #e3e5e8;
   --panel: #ffffff;
-  --panel-2: #eef0f7;
-  --panel-3: #e3e7f1;
-  --text: #3a3f4d;
-  --text-strong: #12141a;
-  --muted: #67708a;
-  --border: rgba(18, 26, 46, 0.08);
-  --border-strong: rgba(18, 26, 46, 0.15);
-  --danger: #d93a44;
-  --danger-soft: rgba(217, 58, 68, 0.1);
-  --success: #0f9d63;
-  --warning: #b47d06;
-  --link: #0b6bcb;
-  --shadow: 0 22px 60px rgba(24, 34, 61, 0.16);
-  --glass: rgba(246, 247, 251, 0.78);
+  --panel-2: #f2f3f5;
+  --panel-3: #e3e5e8;
+  --text: #313338;
+  --text-strong: #060607;
+  --muted: #5c5e66;
+  --border: rgba(6, 6, 7, 0.08);
+  --border-strong: rgba(6, 6, 7, 0.14);
+  --danger: #d83c3e;
+  --danger-soft: rgba(216, 60, 62, 0.1);
+  --success: #1a7f45;
+  --warning: #a86f00;
+  --link: #006ce7;
+  --shadow: 0 22px 60px rgba(20, 26, 40, 0.16);
+  --glass: rgba(255, 255, 255, 0.8);
+  --msg-hover: #f6f6f7;
+  --user-panel: #ebedef;
+  --input-bg: #ebedef;
+  --rail-bg: #f2f3f5;
+  --elevated: #ffffff;
   --accent-soft: color-mix(in srgb, var(--accent) 12%, transparent);
   --accent-line: color-mix(in srgb, var(--accent) 32%, transparent);
 }
@@ -654,6 +664,7 @@ input[type="color"] {
   z-index: 120;
   max-width: min(400px, calc(100vw - 36px));
   pointer-events: none;
+  z-index: 400;
 }
 
 .toast {
