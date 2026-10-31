@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, type ReactNode } from "react";
+import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import type { Message, Poll, User } from "../types";
 import { dayLabel, sameDay } from "../utils";
 import { Icon } from "./Icon";
@@ -25,6 +25,8 @@ export default function MessageList({
   onClosePoll,
   onProfile,
   onMention,
+  canPin,
+  onPin,
 }: {
   messages: Message[];
   me: User;
@@ -36,6 +38,8 @@ export default function MessageList({
   typingNames: string[];
   showTimestamps: boolean;
   focusId?: number | null;
+  canPin?: boolean;
+  onPin?: (message: Message) => void;
   onLoadOlder: () => void;
   onReact: (message: Message, emoji: string) => void;
   onDelete: (message: Message) => void;
@@ -48,6 +52,7 @@ export default function MessageList({
 }) {
   const boxRef = useRef<HTMLDivElement>(null);
   const atBottom = useRef(true);
+  const [showJump, setShowJump] = useState(false);
   const restore = useRef<number | null>(null);
   const lastChannel = useRef<number | null>(null);
 
@@ -82,6 +87,7 @@ export default function MessageList({
     const box = boxRef.current;
     if (!box) return;
     atBottom.current = box.scrollHeight - box.scrollTop - box.clientHeight < 120;
+    setShowJump(!atBottom.current);
     if (box.scrollTop < 140 && hasMore && !loadingOlder) {
       restore.current = box.scrollHeight - box.scrollTop;
       onLoadOlder();
@@ -125,6 +131,8 @@ export default function MessageList({
         onClosePoll={onClosePoll}
         onProfile={onProfile}
         onMention={onMention}
+        canPin={canPin}
+        onPin={onPin}
       />,
     );
     previous = message;
@@ -168,6 +176,19 @@ export default function MessageList({
         </div>
       )}
       <div className="messageAnchor" />
+      {showJump && messages.length > 0 && (
+        <button
+          type="button"
+          className="jumpToBottom"
+          onClick={() => {
+            const box = boxRef.current;
+            if (box) box.scrollTo({ top: box.scrollHeight, behavior: "smooth" });
+            setShowJump(false);
+          }}
+        >
+          <Icon name="chevron" size={16} /> Nejnovější
+        </button>
+      )}
     </div>
   );
 }

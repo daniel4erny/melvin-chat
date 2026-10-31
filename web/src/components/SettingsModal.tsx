@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
-import { api, getServer, setServer } from "../api";
+import { api, getServer, removeAvatar, setServer, uploadAvatar } from "../api";
 import { applyTheme } from "../theme";
 import { toast } from "../toast";
 import { clearLogs, downloadLogs, getLogs, type LogEntry } from "../logs";
 import type { Invite, User, UserSettings, WSStatus } from "../types";
-import { formatDateTime, validColor } from "../utils";
+import { formatDateTime, playPing, prepareAvatar, validColor } from "../utils";
 import BanModal from "./BanModal";
+import TimeoutModal from "./TimeoutModal";
 import { Icon, type IconName } from "./Icon";
 import { Avatar, Modal, Spinner } from "./ui";
 
@@ -49,6 +50,11 @@ export default function SettingsModal({
   const [displayName, setDisplayName] = useState(user.displayName);
   const [bio, setBio] = useState(user.bio);
   const [avatarColor, setAvatarColor] = useState(user.avatarColor);
+  const [avatarId, setAvatarId] = useState(user.avatarId);
+  const [avatarBusy, setAvatarBusy] = useState(false);
+  const [pronouns, setPronouns] = useState(user.pronouns ?? "");
+  const [place, setPlace] = useState(user.location ?? "");
+  const [website, setWebsite] = useState(user.website ?? "");
   const [statusEmoji, setStatusEmoji] = useState(user.statusEmoji);
   const [statusText, setStatusText] = useState(user.statusText);
   const [settings, setSettings] = useState<UserSettings>(user.settings);
@@ -67,6 +73,7 @@ export default function SettingsModal({
   const [busyUser, setBusyUser] = useState<number | null>(null);
   const [userQuery, setUserQuery] = useState("");
   const [banTarget, setBanTarget] = useState<User | null>(null);
+  const [timeoutTarget, setTimeoutTarget] = useState<User | null>(null);
   const [invites, setInvites] = useState<Invite[]>([]);
   const [invitesLoading, setInvitesLoading] = useState(false);
   const [inviteNote, setInviteNote] = useState("");
@@ -79,6 +86,10 @@ export default function SettingsModal({
     setDisplayName(user.displayName);
     setBio(user.bio);
     setAvatarColor(user.avatarColor);
+    setAvatarId(user.avatarId);
+    setPronouns(user.pronouns ?? "");
+    setPlace(user.location ?? "");
+    setWebsite(user.website ?? "");
     setStatusEmoji(user.statusEmoji);
     setStatusText(user.statusText);
     setSettings(user.settings);
@@ -87,7 +98,10 @@ export default function SettingsModal({
     setCurrentPassword("");
     setNewPassword("");
     setServerValue(getServer());
-  }, [open, user]);
+    // Only reset when the dialog opens; live profile broadcasts must not wipe
+    // whatever the user is currently editing.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
 
   useEffect(() => {
     if (open) applyTheme(settings);
@@ -219,6 +233,59 @@ export default function SettingsModal({
     onClose();
   };
 
+  const handleAvatarFile = async (file: File | undefined) => {
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      setError("Vyber obrázek (PNG, JPEG nebo GIF)");
+      return;
+    }
+    if (file.size > 15 * 1024 * 1024) {
+      setError("Obrázek je moc velký (max 15 MB)");
+      return;
+    }
+    setAvatarBusy(true);
+    setError("");
+    try {
+      const blob = await prepareAvatar(file);
+      const updated = await uploadAvatar(blob);
+      setAvatarId(updated.avatarId);
+      await onRefreshUser();
+      toast.success("Profilovka změněna");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Profilovku se nepodařilo nahrát");
+    } finally {
+      setAvatarBusy(false);
+    }
+  };
+
+  const handleAvatarRemove = async () => {
+    setAvatarBusy(true);
+    setError("");
+    try {
+      const updated = await removeAvatar();
+      setAvatarId(updated.avatarId);
+      await onRefreshUser();
+      toast.success("Profilovka odebrána");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Profilovku se nepodařilo odebrat");
+    } finally {
+      setAvatarBusy(false);
+    }
+  };
+
+  const clearUserTimeout = async (target: User) => {
+    setBusyUser(target.id);
+    try {
+      const res = await api<{ user: User }>(`/api/users/${target.id}/timeout`, { method: "DELETE" });
+      setUsers((prev) => prev.map((u) => (u.id === res.user.id ? res.user : u)));
+      toast.success(`Timeout pro ${res.user.displayName} zrušen`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Timeout se nepodařilo zrušit");
+    } finally {
+      setBusyUser(null);
+    }
+  };
+
   const save = async () => {
     if (!validColor(avatarColor)) {
       setError("Neplatná barva profilu");
@@ -237,6 +304,9 @@ export default function SettingsModal({
         avatarColor,
         statusEmoji: statusEmoji.trim(),
         statusText: statusText.trim(),
+        pronouns: pronouns.trim(),
+        location: place.trim(),
+        website: website.trim(),
         settings,
       });
       toast.success("Nastavení uloženo");
@@ -295,6 +365,9 @@ export default function SettingsModal({
       notifications: true,
       presence: "everyone",
       messageSound: true,
+      soundStyle: "chime",
+      soundVolume: 0.6,
+      callSounds: true,
       bubbleStyle: "rounded",
     });
   };
@@ -348,9 +421,14 @@ export default function SettingsModal({
 
           {tab === "profile" && (
             <div className="settingsSection">
-              <div className="profilePreview">
-                <Avatar name={displayName || user.username} color={avatarColor} size={64} />
-                <div>
+              <div className="profilePreview avatarEditor">
+                <Avatar
+                  name={displayName || user.username}
+                  color={avatarColor}
+                  avatarId={avatarId}
+                  size={76}
+                />
+                <div className="avatarEditorText">
                   <strong>{displayName || user.username}</strong>
                   <span>@{user.username}</span>
                   {user.admin && <span className="adminTag">admin</span>}
@@ -359,6 +437,29 @@ export default function SettingsModal({
                       {statusEmoji.trim()} {statusText.trim()}
                     </span>
                   )}
+                  <div className="avatarEditorActions">
+                    <label className={`btn tiny${avatarBusy ? " disabled" : ""}`}>
+                      {avatarBusy ? <Spinner size={13} /> : <Icon name="image" size={14} />} Nahrát fotku
+                      <input
+                        type="file"
+                        accept="image/png,image/jpeg,image/gif,image/webp"
+                        hidden
+                        onChange={(event) => void handleAvatarFile(event.target.files?.[0])}
+                        disabled={avatarBusy}
+                      />
+                    </label>
+                    {avatarId && (
+                      <button
+                        type="button"
+                        className="btn tiny danger ghost"
+                        onClick={() => void handleAvatarRemove()}
+                        disabled={avatarBusy}
+                      >
+                        Odebrat
+                      </button>
+                    )}
+                  </div>
+                  <small className="muted">Čtverec se ořízne automaticky, max 15 MB.</small>
                 </div>
               </div>
 
@@ -398,6 +499,39 @@ export default function SettingsModal({
                   placeholder="Něco krátkého o tobě…"
                 />
               </label>
+
+              <div className="formGrid">
+                <label className="field">
+                  <span>Zájmena</span>
+                  <input
+                    value={pronouns}
+                    onChange={(e) => setPronouns(e.target.value)}
+                    maxLength={24}
+                    placeholder="on / ona / oni"
+                  />
+                </label>
+                <label className="field">
+                  <span>Lokalita</span>
+                  <input
+                    value={place}
+                    onChange={(e) => setPlace(e.target.value)}
+                    maxLength={48}
+                    placeholder="Praha"
+                  />
+                </label>
+              </div>
+
+              <label className="field">
+                <span>Web nebo odkaz</span>
+                <input
+                  value={website}
+                  onChange={(e) => setWebsite(e.target.value)}
+                  maxLength={160}
+                  placeholder="https://…"
+                  spellCheck={false}
+                />
+              </label>
+
               <div className="field">
                 <span>Barva profilu</span>
                 <div className="colorRow">
@@ -583,6 +717,17 @@ export default function SettingsModal({
                 </label>
                 <label className="toggleRow">
                   <span>
+                    <strong>Zvuky hovorů</strong>
+                    <small>Zvonění při příchozím hovoru a tón při připojení</small>
+                  </span>
+                  <input
+                    type="checkbox"
+                    checked={settings.callSounds}
+                    onChange={(e) => patch({ callSounds: e.target.checked })}
+                  />
+                </label>
+                <label className="toggleRow">
+                  <span>
                     <strong>Notifikace</strong>
                     <small>Systémové oznámení, když je chat na pozadí</small>
                   </span>
@@ -604,6 +749,48 @@ export default function SettingsModal({
                   />
                 </label>
               </div>
+              <div className="settingsBlock">
+                <h4>
+                  <Icon name="bell" size={16} /> Zvuk oznámení
+                </h4>
+                <div className="soundChoices">
+                  {(
+                    [
+                      { id: "chime", label: "Chime" },
+                      { id: "pop", label: "Pop" },
+                      { id: "blip", label: "Blip" },
+                      { id: "bell", label: "Bell" },
+                    ] as const
+                  ).map((sound) => (
+                    <button
+                      key={sound.id}
+                      type="button"
+                      className={`soundChoice${settings.soundStyle === sound.id ? " active" : ""}`}
+                      onClick={() => {
+                        patch({ soundStyle: sound.id });
+                        playPing({ soundStyle: sound.id, soundVolume: settings.soundVolume });
+                      }}
+                    >
+                      {sound.label}
+                    </button>
+                  ))}
+                </div>
+                <label className="field">
+                  <span>Hlasitost · {Math.round(settings.soundVolume * 100)} %</span>
+                  <input
+                    type="range"
+                    min={0}
+                    max={1}
+                    step={0.05}
+                    value={settings.soundVolume}
+                    onChange={(e) => patch({ soundVolume: Number(e.target.value) })}
+                    onMouseUp={() =>
+                      playPing({ soundStyle: settings.soundStyle, soundVolume: settings.soundVolume })
+                    }
+                  />
+                </label>
+              </div>
+
               <p className="hintBox">
                 <Icon name="info" size={15} /> Když chyby vypneš, dál se ukládají do logu v záložce Systém.
               </p>
@@ -676,7 +863,12 @@ export default function SettingsModal({
                 <div className="adminUserList">
                   {filteredUsers.map((member) => (
                     <div className={`adminUserRow${member.banned ? " banned" : ""}`} key={member.id}>
-                      <Avatar name={member.displayName} color={member.avatarColor} size={36} />
+                      <Avatar
+                        name={member.displayName}
+                        color={member.avatarColor}
+                        avatarId={member.avatarId}
+                        size={36}
+                      />
                       <span className="adminUserInfo">
                         <strong>
                           {member.displayName}
@@ -694,9 +886,18 @@ export default function SettingsModal({
                             {member.banReason ? ` · ${member.banReason}` : ""}
                           </small>
                         )}
+                        {member.timeoutUntil && member.timeoutUntil > Date.now() && (
+                          <small className="timeoutReasonText">
+                            timeout do {formatDateTime(member.timeoutUntil)}
+                            {member.timeoutReason ? ` · ${member.timeoutReason}` : ""}
+                          </small>
+                        )}
                       </span>
                       {member.admin && <span className="adminTag">admin</span>}
                       {member.banned && <span className="banTag">ban</span>}
+                      {member.timeoutUntil && member.timeoutUntil > Date.now() && (
+                        <span className="timeoutTag">timeout</span>
+                      )}
                       <div className="adminUserActions">
                         {member.id !== user.id && (
                           <button
@@ -710,6 +911,23 @@ export default function SettingsModal({
                               <Icon name={member.admin ? "userMinus" : "userPlus"} size={14} />
                             )}
                             {member.admin ? "Odebrat admina" : "Udělat adminem"}
+                          </button>
+                        )}
+                        {member.id !== user.id && !member.admin && (
+                          <button
+                            className="btn tiny danger ghost"
+                            onClick={() => {
+                              if (member.timeoutUntil && member.timeoutUntil > Date.now()) {
+                                void clearUserTimeout(member);
+                              } else {
+                                setTimeoutTarget(member);
+                              }
+                            }}
+                            disabled={busyUser === member.id}
+                            title={member.timeoutUntil && member.timeoutUntil > Date.now() ? "Zrušit timeout" : "Dočasně umlčet"}
+                          >
+                            <Icon name="clock" size={14} />{" "}
+                            {member.timeoutUntil && member.timeoutUntil > Date.now() ? "Zrušit T" : "Timeout"}
                           </button>
                         )}
                         {member.id !== user.id &&
@@ -943,6 +1161,16 @@ export default function SettingsModal({
           onBanned={(updated) => {
             setUsers((prev) => prev.map((u) => (u.id === updated.id ? updated : u)));
             setBanTarget(null);
+          }}
+        />
+      )}
+      {timeoutTarget && (
+        <TimeoutModal
+          user={timeoutTarget}
+          onClose={() => setTimeoutTarget(null)}
+          onDone={(updated) => {
+            setUsers((prev) => prev.map((u) => (u.id === updated.id ? updated : u)));
+            setTimeoutTarget(null);
           }}
         />
       )}

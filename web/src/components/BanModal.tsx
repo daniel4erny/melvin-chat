@@ -62,7 +62,7 @@ export default function BanModal({
       }
     >
       <div className="banTarget">
-        <Avatar name={user.displayName} color={user.avatarColor} size={44} />
+        <Avatar name={user.displayName} color={user.avatarColor} avatarId={user.avatarId} size={44} />
         <div>
           <strong>{user.displayName}</strong>
           <span>@{user.username}</span>

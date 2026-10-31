@@ -1,30 +1,59 @@
-import { Component, useEffect, type ReactNode } from "react";
+import { Component, useEffect, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
+import { avatarURL } from "../api";
 import { initials } from "../utils";
 import { logEvent } from "../logs";
 import { Icon } from "./Icon";
 
+function avatarInk(hex: string): string {
+  const match = /^#([0-9a-f]{6})$/i.exec(hex);
+  if (!match) return "#ffffff";
+  const value = parseInt(match[1]!, 16);
+  const r = (value >> 16) & 255;
+  const g = (value >> 8) & 255;
+  const b = value & 255;
+  const luminance = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
+  return luminance > 0.62 ? "#15171c" : "#ffffff";
+}
+
 export function Avatar({
   name,
   color,
+  avatarId,
   size = 36,
   online,
   onClick,
+  ring,
 }: {
   name: string;
   color: string;
+  avatarId?: string;
   size?: number;
   online?: boolean;
   onClick?: () => void;
+  ring?: boolean;
 }) {
+  const [failed, setFailed] = useState(false);
+  useEffect(() => setFailed(false), [avatarId]);
+  const showPhoto = Boolean(avatarId) && !failed;
   return (
     <span
-      className={`avatar${onClick ? " avatarButton" : ""}`}
-      style={{ width: size, height: size, background: color, fontSize: Math.round(size * 0.36) }}
+      className={`avatar${onClick ? " avatarButton" : ""}${showPhoto ? " hasPhoto" : ""}${ring ? " avatarRing" : ""}`}
+      style={{
+        width: size,
+        height: size,
+        background: color,
+        color: avatarInk(color),
+        fontSize: Math.round(size * 0.36),
+      }}
       onClick={onClick}
       title={name}
     >
-      {initials(name)}
+      {showPhoto ? (
+        <img src={avatarURL(avatarId!)} alt="" loading="lazy" onError={() => setFailed(true)} />
+      ) : (
+        <span className="avatarInitials">{initials(name)}</span>
+      )}
       {online !== undefined && <span className={`presenceDot${online ? " online" : ""}`} />}
     </span>
   );
@@ -42,6 +71,7 @@ export function Modal({
   children,
   footer,
   wide,
+  hideHead,
 }: {
   open: boolean;
   title: string;
@@ -50,6 +80,7 @@ export function Modal({
   children: ReactNode;
   footer?: ReactNode;
   wide?: boolean;
+  hideHead?: boolean;
 }) {
   useEffect(() => {
     if (!open) return;
@@ -68,19 +99,80 @@ export function Modal({
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div className={`modalCard${wide ? " modalWide" : ""}`} role="dialog" aria-modal="true" aria-label={title}>
-        <header className="modalHead">
-          <div>
-            <h2>{title}</h2>
-            {subtitle && <p>{subtitle}</p>}
-          </div>
-          <button className="iconBtn" onClick={onClose} aria-label="Zavřít">
-            <Icon name="x" size={20} />
+      <div
+        className={`modalCard${wide ? " modalWide" : ""}${hideHead ? " modalBare" : ""}`}
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+      >
+        {hideHead ? (
+          <button className="iconBtn modalCloseFloat" onClick={onClose} aria-label="Zavřít">
+            <Icon name="x" size={18} />
           </button>
-        </header>
+        ) : (
+          <header className="modalHead">
+            <div>
+              <h2>{title}</h2>
+              {subtitle && <p>{subtitle}</p>}
+            </div>
+            <button className="iconBtn" onClick={onClose} aria-label="Zavřít">
+              <Icon name="x" size={20} />
+            </button>
+          </header>
+        )}
         <div className="modalBody">{children}</div>
         {footer && <footer className="modalFoot">{footer}</footer>}
       </div>
+    </div>,
+    document.body,
+  );
+}
+
+export function SidePanel({
+  open,
+  title,
+  subtitle,
+  onClose,
+  children,
+  footer,
+}: {
+  open: boolean;
+  title: ReactNode;
+  subtitle?: ReactNode;
+  onClose: () => void;
+  children: ReactNode;
+  footer?: ReactNode;
+}) {
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open, onClose]);
+
+  if (!open) return null;
+  return createPortal(
+    <div
+      className="sidePanelBackdrop"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+    >
+      <aside className="sidePanel" role="dialog" aria-modal="true" aria-label={typeof title === "string" ? title : "Panel"}>
+        <header className="sidePanelHead">
+          <div className="sidePanelTitle">
+            <h3>{title}</h3>
+            {subtitle && <p>{subtitle}</p>}
+          </div>
+          <button className="iconBtn" onClick={onClose} aria-label="Zavřít">
+            <Icon name="x" size={18} />
+          </button>
+        </header>
+        <div className="sidePanelBody">{children}</div>
+        {footer && <footer className="sidePanelFoot">{footer}</footer>}
+      </aside>
     </div>,
     document.body,
   );

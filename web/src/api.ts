@@ -59,6 +59,39 @@ export function fileURL(id: string): string {
   return `${apiURL(`/api/files/${id}`)}?token=${encodeURIComponent(getToken() ?? "")}`;
 }
 
+// Avatars are served by an unguessable random id and need no token, so plain
+// <img> tags can load them without custom headers.
+export function avatarURL(id: string): string {
+  return apiURL(`/api/avatars/${id}`);
+}
+
+export async function uploadAvatar(blob: Blob): Promise<User> {
+  const headers: Record<string, string> = { "Content-Type": blob.type || "image/png" };
+  const token = getToken();
+  if (token) headers.Authorization = `Bearer ${token}`;
+  const res = await fetch(apiURL("/api/me/avatar"), { method: "POST", headers, body: blob });
+  const text = await res.text();
+  let data: unknown = null;
+  try {
+    data = text ? JSON.parse(text) : null;
+  } catch {
+    data = null;
+  }
+  if (!res.ok) {
+    const message =
+      data && typeof data === "object" && "error" in data && typeof data.error === "string"
+        ? data.error
+        : `Nahrání obrázku selhalo (${res.status})`;
+    throw new ApiError(res.status, message);
+  }
+  return (data as { user: User }).user;
+}
+
+export async function removeAvatar(): Promise<User> {
+  const res = await api<{ user: User }>("/api/me/avatar", { method: "DELETE" });
+  return res.user;
+}
+
 type RequestOptions = {
   method?: string;
   body?: unknown;

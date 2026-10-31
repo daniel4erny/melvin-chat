@@ -9,6 +9,8 @@ export type CallState = {
   peers: Record<number, CallPeer>;
   muted: boolean;
   camera: boolean;
+  screen: boolean;
+  deafened: boolean;
   startedAt: number;
   localStream: MediaStream | null;
   remoteStreams: Map<number, MediaStream>;
@@ -20,6 +22,8 @@ type Call = {
   leave: () => void;
   toggleMute: () => void;
   toggleCamera: () => Promise<void>;
+  toggleDeafen: () => void;
+  toggleScreen: () => Promise<void>;
   handleEvent: (event: SocketEvent) => void;
 };
 
@@ -29,6 +33,7 @@ export function useCall(config: AppConfig | null): Call {
   const pcs = useRef(new Map<number, RTCPeerConnection>());
   const pendingIce = useRef(new Map<number, RTCIceCandidateInit[]>());
   const pendingOffers = useRef(new Map<number, Promise<void>>());
+  const screenStream = useRef<MediaStream | null>(null);
 
   const commit = useCallback((next: CallState | null) => {
     stateRef.current = next;
@@ -51,32 +56,39 @@ export function useCall(config: AppConfig | null): Call {
     }
   }, []);
 
-  const closePeer = useCallback((userId: number) => {
-    const pc = pcs.current.get(userId);
-    if (pc) {
-      pc.onicecandidate = null;
-      pc.ontrack = null;
-      pc.onconnectionstatechange = null;
-      pc.close();
-      pcs.current.delete(userId);
-    }
-    pendingIce.current.delete(userId);
-    pendingOffers.current.delete(userId);
-    const current = stateRef.current;
-    if (!current) return;
-    const peers = { ...current.peers };
-    delete peers[userId];
-    const streams = new Map(current.remoteStreams);
-    streams.delete(userId);
-    commit({ ...current, peers, remoteStreams: streams });
-  }, [commit]);
+  const closePeer = useCallback(
+    (userId: number) => {
+      const pc = pcs.current.get(userId);
+      if (pc) {
+        pc.onicecandidate = null;
+        pc.ontrack = null;
+        pc.onconnectionstatechange = null;
+        pc.close();
+        pcs.current.delete(userId);
+      }
+      pendingIce.current.delete(userId);
+      pendingOffers.current.delete(userId);
+      const current = stateRef.current;
+      if (!current) return;
+      const peers = { ...current.peers };
+      delete peers[userId];
+      const streams = new Map(current.remoteStreams);
+      streams.delete(userId);
+      commit({ ...current, peers, remoteStreams: streams });
+    },
+    [commit],
+  );
 
   const createPeer = useCallback(
     (peer: CallPeer): RTCPeerConnection | null => {
       const current = stateRef.current;
       if (!current) return null;
       const existing = pcs.current.get(peer.id);
-      if (existing) return existing;
+      if (existing) {
+        const latest = stateRef.current;
+        if (latest) commit({ ...latest, peers: { ...latest.peers, [peer.id]: peer } });
+        return existing;
+      }
       const pc = new RTCPeerConnection({ iceServers: iceServers() });
       pcs.current.set(peer.id, pc);
       const local = current.localStream;
@@ -156,10 +168,12 @@ export function useCall(config: AppConfig | null): Call {
         send({ type: "call:leave", channelId: stateRef.current.channelId });
         for (const id of [...pcs.current.keys()]) closePeer(id);
         stateRef.current.localStream?.getTracks().forEach((t) => t.stop());
+        screenStream.current?.getTracks().forEach((t) => t.stop());
+        screenStream.current = null;
       }
       try {
         const stream = await navigator.mediaDevices.getUserMedia({
-          audio: { echoCancellation: true, noiseSuppression: true },
+          audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
           video: false,
         });
         const next: CallState = {
@@ -167,6 +181,8 @@ export function useCall(config: AppConfig | null): Call {
           peers: {},
           muted: false,
           camera: false,
+          screen: false,
+          deafened: false,
           startedAt: Date.now(),
           localStream: stream,
           remoteStreams: new Map(),
@@ -186,6 +202,8 @@ export function useCall(config: AppConfig | null): Call {
     if (current) send({ type: "call:leave", channelId: current.channelId });
     for (const id of [...pcs.current.keys()]) closePeer(id);
     current?.localStream?.getTracks().forEach((track) => track.stop());
+    screenStream.current?.getTracks().forEach((track) => track.stop());
+    screenStream.current = null;
     commit(null);
   }, [closePeer, commit, send]);
 
@@ -196,12 +214,35 @@ export function useCall(config: AppConfig | null): Call {
     current.localStream?.getAudioTracks().forEach((track) => {
       track.enabled = !enabled;
     });
+    send({ type: "call:mute", channelId: current.channelId, muted: enabled });
     commit({ ...current, muted: enabled });
-  }, [commit]);
+  }, [commit, send]);
+
+  const toggleDeafen = useCallback(() => {
+    const current = stateRef.current;
+    if (!current) return;
+    const deafened = !current.deafened;
+    commit({
+      ...current,
+      deafened,
+      // Deafen also mutes your own mic, like Discord's combined control.
+      muted: deafened ? true : current.muted,
+    });
+    if (deafened) {
+      current.localStream?.getAudioTracks().forEach((track) => {
+        track.enabled = false;
+      });
+      send({ type: "call:mute", channelId: current.channelId, muted: true });
+    }
+  }, [commit, send]);
 
   const toggleCamera = useCallback(async () => {
     const current = stateRef.current;
     if (!current) return;
+    if (current.screen) {
+      toast.info("Nejdřív ukonči sdílení obrazovky");
+      return;
+    }
     if (current.camera) {
       const videoTracks = current.localStream?.getVideoTracks() ?? [];
       for (const pc of pcs.current.values()) {
@@ -229,18 +270,79 @@ export function useCall(config: AppConfig | null): Call {
       });
       const track = video.getVideoTracks()[0];
       if (!track) return;
-      const stream = current.localStream ?? new MediaStream();
+      const latest = stateRef.current ?? current;
+      const stream = latest.localStream ?? new MediaStream();
       stream.addTrack(track);
       for (const pc of pcs.current.values()) {
         pc.addTrack(track, stream);
       }
-      commit({ ...current, camera: true, localStream: stream });
+      commit({ ...latest, camera: true, localStream: stream });
       await renegotiate();
     } catch (err) {
       logEvent("error", "Kamera nedostupná", err);
       toast.error("Nepodařilo se zapnout kameru. Povol přístup ke kameře.");
     }
   }, [commit, renegotiate]);
+
+  const stopScreen = useCallback(async () => {
+    const current = stateRef.current;
+    const display = screenStream.current;
+    if (!current || !display) return;
+    const track = display.getVideoTracks()[0];
+    for (const pc of pcs.current.values()) {
+      const sender = pc.getSenders().find((entry) => entry.track === track);
+      if (sender) {
+        try {
+          pc.removeTrack(sender);
+        } catch {
+          // already removed
+        }
+      }
+    }
+    if (track) {
+      track.stop();
+      current.localStream?.removeTrack(track);
+    }
+    display.getTracks().forEach((t) => t.stop());
+    screenStream.current = null;
+    commit({ ...current, screen: false, localStream: current.localStream });
+    await renegotiate();
+  }, [commit, renegotiate]);
+
+  const toggleScreen = useCallback(async () => {
+    const current = stateRef.current;
+    if (!current) return;
+    if (current.screen) {
+      await stopScreen();
+      return;
+    }
+    if (!navigator.mediaDevices?.getDisplayMedia) {
+      toast.error("Tvoje zařízení neumí sdílet obrazovku");
+      return;
+    }
+    // A WebRTC connection can only carry one video track per sender here, so
+    // share the screen instead of the camera rather than both at once.
+    if (current.camera) {
+      await toggleCamera();
+    }
+    try {
+      const display = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
+      const track = display.getVideoTracks()[0];
+      if (!track) return;
+      const latest = stateRef.current ?? current;
+      screenStream.current = display;
+      track.onended = () => void stopScreen();
+      const stream = latest.localStream ?? new MediaStream();
+      stream.addTrack(track);
+      for (const pc of pcs.current.values()) {
+        pc.addTrack(track, stream);
+      }
+      commit({ ...latest, screen: true, localStream: stream });
+      await renegotiate();
+    } catch (err) {
+      logEvent("error", "Sdílení obrazovky selhalo", err);
+    }
+  }, [commit, renegotiate, stopScreen, toggleCamera]);
 
   const handleEvent = useCallback(
     (event: SocketEvent) => {
@@ -336,9 +438,32 @@ export function useCall(config: AppConfig | null): Call {
           if (event.userId) closePeer(event.userId);
           break;
         }
+        case "call:state": {
+          const roster = event.participants ?? [];
+          const latest = stateRef.current;
+          if (!latest) return;
+          const peers = { ...latest.peers };
+          for (const peer of roster) {
+            if (peer.id === 0) continue;
+            peers[peer.id] = { ...peers[peer.id], ...peer };
+          }
+          commit({ ...latest, peers });
+          break;
+        }
+        case "call:mute": {
+          const latest = stateRef.current;
+          if (!latest || typeof event.userId !== "number") return;
+          const peer = latest.peers[event.userId];
+          if (!peer) return;
+          commit({
+            ...latest,
+            peers: { ...latest.peers, [event.userId]: { ...peer, muted: Boolean(event.muted) } },
+          });
+          break;
+        }
       }
     },
-    [closePeer, createPeer, makeOffer, send],
+    [closePeer, commit, createPeer, makeOffer, send],
   );
 
   useEffect(() => {
@@ -348,9 +473,10 @@ export function useCall(config: AppConfig | null): Call {
       for (const pc of pcs.current.values()) pc.close();
       pcs.current.clear();
       current?.localStream?.getTracks().forEach((track) => track.stop());
+      screenStream.current?.getTracks().forEach((track) => track.stop());
       stateRef.current = null;
     };
   }, []);
 
-  return { state, join, leave, toggleMute, toggleCamera, handleEvent };
+  return { state, join, leave, toggleMute, toggleCamera, toggleDeafen, toggleScreen, handleEvent };
 }

@@ -19,6 +19,10 @@ export type SocketEvent = {
   renegotiate?: boolean;
   valid?: boolean;
   reason?: string;
+  recording?: boolean;
+  muted?: boolean;
+  until?: number;
+  timeoutLeft?: number;
 };
 
 type Listener = (event: SocketEvent) => void;

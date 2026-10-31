@@ -9,6 +9,9 @@ export type UserSettings = {
   notifications: boolean;
   presence: "everyone" | "nobody";
   messageSound: boolean;
+  soundStyle: "chime" | "pop" | "blip" | "bell";
+  soundVolume: number;
+  callSounds: boolean;
   bubbleStyle: "rounded" | "flat";
 };
 
@@ -24,6 +27,13 @@ export type User = {
   banned: boolean;
   banReason: string;
   bannedUntil?: number;
+  avatarId: string;
+  pronouns: string;
+  location: string;
+  website: string;
+  lastSeen: number;
+  timeoutUntil?: number;
+  timeoutReason: string;
   settings: UserSettings;
   createdAt: number;
 };
@@ -67,6 +77,7 @@ export type Message = {
   createdAt: number;
   editedAt?: number;
   deleted: boolean;
+  pinned: boolean;
   attachment?: Attachment;
   poll?: Poll;
   replyTo?: number;
@@ -121,6 +132,24 @@ export type CallPeer = {
   username: string;
   displayName: string;
   avatarColor: string;
+  avatarId?: string;
+  muted?: boolean;
+};
+
+export type SharedChannel = { id: number; name: string; visibility: string };
+
+export type UserStats = {
+  messages: number;
+  reactions: number;
+  channels: number;
+  sharedChannels: SharedChannel[];
+};
+
+export type UserProfileResponse = {
+  user: User;
+  stats: UserStats;
+  online: boolean;
+  timeoutLeft: number;
 };
 
 export type WSStatus = "connecting" | "online" | "offline";

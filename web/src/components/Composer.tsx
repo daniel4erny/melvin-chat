@@ -3,7 +3,7 @@ import { kindFromFile, uploadBlob } from "../api";
 import { socket } from "../ws";
 import { toast } from "../toast";
 import type { Attachment, Message, User } from "../types";
-import { formatDuration, formatSize } from "../utils";
+import { formatDuration, formatSize, timeoutLabel } from "../utils";
 import { Icon } from "./Icon";
 import { Avatar, Spinner } from "./ui";
 
@@ -41,6 +41,8 @@ export default function Composer({
   onCancelReply,
   onSend,
   onPoll,
+  timeoutMsLeft = 0,
+  timeoutReason = "",
 }: {
   channelId: number;
   channelName: string;
@@ -51,6 +53,8 @@ export default function Composer({
   onCancelReply: () => void;
   onSend: (text: string, attachmentId?: string, replyTo?: number) => Promise<void>;
   onPoll: () => void;
+  timeoutMsLeft?: number;
+  timeoutReason?: string;
 }) {
   const [text, setText] = useState("");
   const [pending, setPending] = useState<Attachment[]>([]);
@@ -59,6 +63,8 @@ export default function Composer({
   const [emojiOpen, setEmojiOpen] = useState(false);
   const [recording, setRecording] = useState(false);
   const [seconds, setSeconds] = useState(0);
+  const [level, setLevel] = useState(0);
+  const [levels, setLevels] = useState<number[]>(() => Array(30).fill(0.06));
   const [dragging, setDragging] = useState(false);
   const [mention, setMention] = useState<{ start: number; query: string } | null>(null);
   const [mentionIndex, setMentionIndex] = useState(0);
@@ -72,6 +78,14 @@ export default function Composer({
   const secondsRef = useRef(0);
   const discard = useRef(false);
   const typingAt = useRef(0);
+  const channelRef = useRef(channelId);
+  const meter = useRef<{
+    ctx: AudioContext;
+    source: MediaStreamAudioSourceNode;
+    analyser: AnalyserNode;
+    data: Uint8Array;
+    timer: number;
+  } | null>(null);
 
   useEffect(() => {
     const el = textarea.current;
@@ -80,13 +94,29 @@ export default function Composer({
     el.style.height = `${Math.min(el.scrollHeight, 200)}px`;
   }, [text]);
 
+  const stopMeter = () => {
+    if (!meter.current) return;
+    window.clearInterval(meter.current.timer);
+    try {
+      meter.current.source.disconnect();
+      void meter.current.ctx.close();
+    } catch {
+      // already closed
+    }
+    meter.current = null;
+    setLevel(0);
+    setLevels(Array(30).fill(0.06));
+  };
+
   useEffect(() => {
     return () => {
       if (timer.current !== null) clearInterval(timer.current);
       if (recorder.current && recorder.current.state !== "inactive") {
         discard.current = true;
         recorder.current.stop();
+        socket.send({ type: "voice:recording", channelId: channelRef.current, recording: false });
       }
+      stopMeter();
       stream.current?.getTracks().forEach((t) => t.stop());
     };
   }, []);
@@ -99,7 +129,9 @@ export default function Composer({
     if (recorder.current && recorder.current.state !== "inactive") {
       discard.current = true;
       recorder.current.stop();
+      socket.send({ type: "voice:recording", channelId: channelRef.current, recording: false });
     }
+    channelRef.current = channelId;
   }, [channelId]);
 
   const send = async () => {
@@ -266,6 +298,27 @@ export default function Composer({
     return () => window.removeEventListener("paste", onPaste);
   }, []);
 
+  const startMeter = (audio: MediaStream) => {
+    try {
+      const ctx = new AudioContext();
+      const source = ctx.createMediaStreamSource(audio);
+      const analyser = ctx.createAnalyser();
+      analyser.fftSize = 256;
+      source.connect(analyser);
+      const data = new Uint8Array(analyser.frequencyBinCount);
+      const meterTimer = window.setInterval(() => {
+        analyser.getByteTimeDomainData(data);
+        let peak = 0;
+        for (const value of data) peak = Math.max(peak, Math.abs(value - 128) / 128);
+        setLevel(peak);
+        setLevels((prev) => [...prev.slice(1), Math.max(0.06, Math.min(1, peak * 2.4))]);
+      }, 90);
+      meter.current = { ctx, source, analyser, data, timer: meterTimer };
+    } catch {
+      // level meter is a nice-to-have
+    }
+  };
+
   const startRecording = async () => {
     if (!navigator.mediaDevices?.getUserMedia) {
       toast.error("Tvůj prohlížeč neumí nahrávat zvuk");
@@ -282,6 +335,9 @@ export default function Composer({
       discard.current = false;
       secondsRef.current = 0;
       setSeconds(0);
+      setLevels(Array(30).fill(0.06));
+      startMeter(audio);
+      socket.send({ type: "voice:recording", channelId, recording: true });
 
       rec.ondataavailable = (event) => {
         if (event.data.size > 0) chunks.current.push(event.data);
@@ -290,6 +346,8 @@ export default function Composer({
         const duration = secondsRef.current;
         audio.getTracks().forEach((t) => t.stop());
         stream.current = null;
+        stopMeter();
+        socket.send({ type: "voice:recording", channelId, recording: false });
         setRecording(false);
         if (timer.current !== null) {
           clearInterval(timer.current);
@@ -320,6 +378,7 @@ export default function Composer({
         if (secondsRef.current >= 300) stopRecording(false);
       }, 1000);
     } catch {
+      stopMeter();
       toast.error("Nepodařilo se spustit nahrávání. Povol mikrofon.");
     }
   };
@@ -426,7 +485,7 @@ export default function Composer({
                 applyMention(member.username);
               }}
             >
-              <Avatar name={member.displayName} color={member.avatarColor} size={22} />
+              <Avatar name={member.displayName} color={member.avatarColor} avatarId={member.avatarId} size={22} />
               <span className="mentionName">{member.displayName}</span>
               <span className="mentionHandle">@{member.username}</span>
             </button>
@@ -434,16 +493,38 @@ export default function Composer({
         </div>
       )}
 
-      {recording ? (
-        <div className="composer recordingBar">
+      {timeoutMsLeft > 0 ? (
+        <div className="composerTimeout">
+          <span className="composerTimeoutIcon">
+            <Icon name="clock" size={19} />
+          </span>
+          <div className="composerTimeoutText">
+            <strong>Máš timeout</strong>
+            <span>
+              Psát, reagovat a volat můžeš znovu za <b>{timeoutLabel(timeoutMsLeft)}</b>
+              {timeoutReason ? ` · ${timeoutReason}` : ""}
+            </span>
+          </div>
+        </div>
+      ) : recording ? (
+        <div className="composer recordingBar" style={{ boxShadow: `0 0 0 ${Math.round(2 + level * 8)}px rgba(237, 66, 69, 0.12)` }}>
           <span className="recordDot" />
-          <span className="recordTimer">Nahrávám {formatDuration(seconds)}</span>
-          <span className="recordHint">Klikni na fajfku pro odeslání</span>
-          <button className="iconBtn" onClick={() => stopRecording(true)} title="Zahodit">
+          <span className="recordTimer">{formatDuration(seconds)}</span>
+          <div className="recordWave" aria-hidden="true">
+            {levels.map((value, index) => (
+              <span
+                key={index}
+                className="recordWaveBar"
+                style={{ height: `${Math.max(8, Math.round(value * 100))}%` }}
+              />
+            ))}
+          </div>
+          <span className="recordHint">Nahrávám hlasovku…</span>
+          <button className="iconBtn recordCancel" onClick={() => stopRecording(true)} title="Zahodit nahrávku" aria-label="Zahodit nahrávku">
             <Icon name="trash" size={18} />
           </button>
-          <button className="iconBtn send" onClick={() => stopRecording(false)} title="Odeslat hlasovku">
-            <Icon name="check" size={19} />
+          <button className="sendBtn recordSend" onClick={() => stopRecording(false)} title="Odeslat hlasovku" aria-label="Odeslat hlasovku">
+            <Icon name="check" size={20} />
           </button>
         </div>
       ) : (

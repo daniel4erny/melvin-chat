@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, fetchConfig } from "../api";
 import { useAuth } from "../auth";
-import { playPing } from "../utils";
+import { playCallTone, playPing, startRinging } from "../utils";
 import { logEvent } from "../logs";
 import { socket, type SocketEvent } from "../ws";
 import { toast } from "../toast";
@@ -26,6 +26,9 @@ import PollModal from "../components/PollModal";
 import CallBar from "../components/CallBar";
 import ProfileCard from "../components/ProfileCard";
 import SearchPanel from "../components/SearchPanel";
+import MemberList from "../components/MemberList";
+import PinsPanel from "../components/PinsPanel";
+import UserMessagesPanel from "../components/UserMessagesPanel";
 import { useCall } from "../useCall";
 import "../styles/chat.css";
 
@@ -81,18 +84,27 @@ export default function Chat() {
   const [loadingChannels, setLoadingChannels] = useState(true);
   const [online, setOnline] = useState<Set<number>>(new Set());
   const [typing, setTyping] = useState<Map<number, { name: string; expires: number }>>(new Map());
+  const [recordingUsers, setRecordingUsers] = useState<Record<number, Record<number, { name: string; expires: number }>>>({});
+  const [callRoster, setCallRoster] = useState<Record<number, CallPeer[]>>({});
   const [wsStatus, setWsStatus] = useState<WSStatus>("connecting");
   const [replyTo, setReplyTo] = useState<Message | null>(null);
   const [channelModal, setChannelModal] = useState<{ mode: "create" | "edit"; channel: Channel | null } | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [pollOpen, setPollOpen] = useState(false);
   const [membersOpen, setMembersOpen] = useState(false);
+  const [membersRail, setMembersRail] = useState(() => localStorage.getItem("melvin.membersRail") !== "0");
+  const [isCompact, setIsCompact] = useState(() => window.matchMedia("(max-width: 1100px)").matches);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [ring, setRing] = useState<{ channelId: number; from: CallPeer } | null>(null);
   const [profileUser, setProfileUser] = useState<User | null>(null);
+  const [messagesUser, setMessagesUser] = useState<User | null>(null);
   const [searchOpen, setSearchOpen] = useState(false);
+  const [pinsOpen, setPinsOpen] = useState(false);
+  const [pins, setPins] = useState<Message[]>([]);
   const [focusId, setFocusId] = useState<number | null>(null);
+  const [clock, setClock] = useState(Date.now());
   const focusTimer = useRef<number | null>(null);
+  const pendingJump = useRef<{ channelId: number; messageId: number } | null>(null);
 
   const activeRef = useRef<number | null>(activeId);
   const channelsRef = useRef<Channel[]>(channels);
@@ -110,6 +122,26 @@ export default function Chat() {
       .then(setConfig)
       .catch((err) => logEvent("warn", "Nepodařilo se načíst config", err));
   }, []);
+
+  useEffect(() => {
+    const media = window.matchMedia("(max-width: 1100px)");
+    const update = () => setIsCompact(media.matches);
+    update();
+    media.addEventListener("change", update);
+    return () => media.removeEventListener("change", update);
+  }, []);
+
+  useEffect(() => {
+    localStorage.setItem("melvin.membersRail", membersRail ? "1" : "0");
+  }, [membersRail]);
+
+  useEffect(() => {
+    if (!me.timeoutUntil || me.timeoutUntil <= Date.now()) return;
+    const timer = window.setInterval(() => setClock(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [me.timeoutUntil]);
+
+  const timeoutMs = me.timeoutUntil ? Math.max(0, me.timeoutUntil - clock) : 0;
 
   const markRead = useCallback((channelId: number, messageId?: number) => {
     const now = Date.now();
@@ -175,6 +207,7 @@ export default function Chat() {
     setMessages([]);
     setMembers([]);
     setHasMore(false);
+    setPins([]);
     if (activeId === null) {
       setLoadingMessages(false);
       return;
@@ -183,7 +216,12 @@ export default function Chat() {
     let cancelled = false;
     setLoadingMessages(true);
 
-    api<{ messages: Message[]; hasMore: boolean }>(`/api/channels/${activeId}/messages?limit=50`)
+    const jump = pendingJump.current?.channelId === activeId ? pendingJump.current : null;
+    const messageURL = jump
+      ? `/api/channels/${activeId}/messages?around=${jump.messageId}&limit=50`
+      : `/api/channels/${activeId}/messages?limit=50`;
+
+    api<{ messages: Message[]; hasMore: boolean }>(messageURL)
       .then((res) => {
         if (cancelled) return;
         setMessages(res.messages);
@@ -191,6 +229,12 @@ export default function Chat() {
         setHasMore(res.hasMore);
         const last = res.messages[res.messages.length - 1];
         if (last) markRead(activeId, last.id);
+        if (jump) {
+          setFocusId(jump.messageId);
+          if (focusTimer.current !== null) window.clearTimeout(focusTimer.current);
+          focusTimer.current = window.setTimeout(() => setFocusId(null), 2400);
+          pendingJump.current = null;
+        }
       })
       .catch((err) => {
         if (!cancelled) toast.error(err instanceof Error ? err.message : "Zprávy se nepodařilo načíst");
@@ -212,6 +256,12 @@ export default function Chat() {
       .catch((err) => {
         if (!cancelled) logEvent("warn", "Detail kanálu selhal", err);
       });
+
+    api<{ messages: Message[] }>(`/api/channels/${activeId}/pins`)
+      .then((res) => {
+        if (!cancelled) setPins(res.messages);
+      })
+      .catch(() => undefined);
 
     return () => {
       cancelled = true;
@@ -243,6 +293,12 @@ export default function Chat() {
     return () => clearTimeout(timer);
   }, [ring]);
 
+  useEffect(() => {
+    if (!ring || !userRef.current.settings.callSounds) return;
+    const stop = startRinging();
+    return stop;
+  }, [ring]);
+
   const call = useCall(config);
   const callRef = useRef(call);
   callRef.current = call;
@@ -251,13 +307,16 @@ export default function Chat() {
     setActiveId(id);
     setSidebarOpen(false);
     setSearchOpen(false);
+    setPinsOpen(false);
     setProfileUser(null);
+    setMessagesUser(null);
   }, []);
 
   const jumpToMessage = useCallback(async (messageId: number) => {
     const channelId = activeRef.current;
     if (!channelId) return;
     setSearchOpen(false);
+    setPinsOpen(false);
     try {
       const res = await api<{ messages: Message[]; hasMore: boolean }>(
         `/api/channels/${channelId}/messages?around=${messageId}&limit=50`,
@@ -267,11 +326,28 @@ export default function Chat() {
       setHasMore(res.hasMore);
       setFocusId(messageId);
       if (focusTimer.current !== null) window.clearTimeout(focusTimer.current);
-      focusTimer.current = window.setTimeout(() => setFocusId(null), 2200);
+      focusTimer.current = window.setTimeout(() => setFocusId(null), 2400);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Na zprávu se nepodařilo skočit");
     }
   }, []);
+
+  const openMessageAt = useCallback(
+    (channelId: number, messageId: number) => {
+      setMessagesUser(null);
+      setProfileUser(null);
+      setPinsOpen(false);
+      setSearchOpen(false);
+      setSidebarOpen(false);
+      if (activeRef.current === channelId) {
+        void jumpToMessage(messageId);
+        return;
+      }
+      pendingJump.current = { channelId, messageId };
+      setActiveId(channelId);
+    },
+    [jumpToMessage],
+  );
 
   const openProfileByUsername = useCallback(
     (username: string) => {
@@ -340,32 +416,36 @@ export default function Chat() {
     }
   }, []);
 
+  const togglePin = useCallback(async (message: Message) => {
+    try {
+      await api(`/api/messages/${message.id}/pin`, { method: message.pinned ? "DELETE" : "POST" });
+      setMessages((prev) => prev.map((m) => (m.id === message.id ? { ...m, pinned: !message.pinned } : m)));
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Připnutí selhalo");
+    }
+  }, []);
+
   const votePoll = useCallback(async (poll: Poll, optionIds: number[]) => {
     try {
       const res = await api<{ poll: Poll }>(`/api/polls/${poll.id}/vote`, {
         method: "POST",
         body: { optionIds },
       });
-      setMessages((prev) =>
-        prev.map((m) => (m.poll?.id === poll.id ? { ...m, poll: res.poll } : m)),
-      );
+      setMessages((prev) => prev.map((m) => (m.poll?.id === poll.id ? { ...m, poll: res.poll } : m)));
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Hlasování selhalo");
     }
   }, []);
 
-  const closePoll = useCallback(
-    async (poll: Poll) => {
-      if (!window.confirm("Uzavřít anketu? Už nepůjde hlasovat.")) return;
-      try {
-        const res = await api<{ poll: Poll }>(`/api/polls/${poll.id}/close`, { method: "POST", body: {} });
-        setMessages((prev) => prev.map((m) => (m.poll?.id === poll.id ? { ...m, poll: res.poll } : m)));
-      } catch (err) {
-        toast.error(err instanceof Error ? err.message : "Anketu se nepodařilo uzavřít");
-      }
-    },
-    [],
-  );
+  const closePoll = useCallback(async (poll: Poll) => {
+    if (!window.confirm("Uzavřít anketu? Už nepůjde hlasovat.")) return;
+    try {
+      const res = await api<{ poll: Poll }>(`/api/polls/${poll.id}/close`, { method: "POST", body: {} });
+      setMessages((prev) => prev.map((m) => (m.poll?.id === poll.id ? { ...m, poll: res.poll } : m)));
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Anketu se nepodařilo uzavřít");
+    }
+  }, []);
 
   const createPoll = useCallback(
     async (question: string, options: string[], multi: boolean, anonymous: boolean) => {
@@ -455,7 +535,7 @@ export default function Chat() {
         if (message.user.id !== me.id) {
           const channel = channelsRef.current.find((c) => c.id === message.channelId);
           const away = document.hidden || message.channelId !== activeRef.current;
-          if (away && userRef.current.settings.messageSound) playPing();
+          if (away && userRef.current.settings.messageSound) playPing(userRef.current.settings);
           if (away && userRef.current.settings.notifications) notifyMessage(message, channel);
         }
         break;
@@ -465,10 +545,11 @@ export default function Chat() {
           setMessages((prev) =>
             prev.map((m) =>
               m.id === event.messageId
-                ? { ...m, deleted: true, text: "", attachment: undefined, reactions: [] }
+                ? { ...m, deleted: true, text: "", attachment: undefined, reactions: [], pinned: false }
                 : m,
             ),
           );
+          setPins((prev) => prev.filter((m) => m.id !== event.messageId));
         }
         break;
       }
@@ -476,6 +557,22 @@ export default function Chat() {
         if (event.message) {
           const updated = event.message;
           setMessages((prev) => prev.map((m) => (m.id === updated.id ? updated : m)));
+          setPins((prev) => prev.map((m) => (m.id === updated.id ? updated : m)));
+        }
+        break;
+      }
+      case "message:pinned": {
+        if (event.message) {
+          const pinned = event.message;
+          setPins((prev) => [pinned, ...prev.filter((m) => m.id !== pinned.id)]);
+          setMessages((prev) => prev.map((m) => (m.id === pinned.id ? { ...m, pinned: true } : m)));
+        }
+        break;
+      }
+      case "message:unpinned": {
+        if (typeof event.messageId === "number") {
+          setPins((prev) => prev.filter((m) => m.id !== event.messageId));
+          setMessages((prev) => prev.map((m) => (m.id === event.messageId ? { ...m, pinned: false } : m)));
         }
         break;
       }
@@ -511,6 +608,31 @@ export default function Chat() {
         }
         break;
       }
+      case "voice:recording": {
+        const channelId = event.channelId;
+        const arrival = event.user;
+        if (typeof channelId !== "number" || !arrival || typeof arrival.id !== "number") break;
+        const userId = arrival.id;
+        setRecordingUsers((prev) => {
+          const channel = { ...(prev[channelId] ?? {}) };
+          if (event.recording) channel[userId] = { name: arrival.displayName, expires: Date.now() + 310_000 };
+          else delete channel[userId];
+          return { ...prev, [channelId]: channel };
+        });
+        if (event.recording) {
+          window.setTimeout(() => {
+            setRecordingUsers((prev) => {
+              const channel = prev[channelId];
+              const entry = channel?.[userId];
+              if (!entry || entry.expires > Date.now()) return prev;
+              const nextChannel = { ...channel };
+              delete nextChannel[userId];
+              return { ...prev, [channelId]: nextChannel };
+            });
+          }, 311_000);
+        }
+        break;
+      }
       case "channels:changed": {
         void refreshChannels();
         break;
@@ -522,7 +644,7 @@ export default function Chat() {
           toast.info(
             `${mentionMessage.user.displayName} tě zmínil${channel ? ` v #${channel.name}` : ""}`,
           );
-          if (userRef.current.settings.messageSound) playPing();
+          if (userRef.current.settings.messageSound) playPing(userRef.current.settings);
         }
         break;
       }
@@ -535,6 +657,19 @@ export default function Chat() {
           setProfileUser((prev) => (prev && prev.id === updated.id ? updated : prev));
           if (updated.id === me.id) void refresh();
         }
+        break;
+      }
+      case "user:timeout": {
+        if (event.userId === me.id) {
+          const reason = event.reason ? `: ${event.reason}` : "";
+          toast.error(`Dostal(a) jsi timeout${reason}`);
+          void refresh();
+        }
+        break;
+      }
+      case "timeout:blocked": {
+        toast.error(typeof event.message === "string" ? event.message : "Máš timeout – teď nemůžeš pokračovat.");
+        callRef.current.leave();
         break;
       }
       case "users:changed": {
@@ -555,12 +690,19 @@ export default function Chat() {
         }
         break;
       }
+      case "call:state": {
+        if (typeof event.channelId === "number") {
+          setCallRoster((prev) => ({ ...prev, [event.channelId!]: event.participants ?? [] }));
+        }
+        break;
+      }
       case "call:participants":
       case "call:peer-joined":
       case "call:peer-left":
       case "call:offer":
       case "call:answer":
-      case "call:ice": {
+      case "call:ice":
+      case "call:mute": {
         callRef.current.handleEvent(event);
         break;
       }
@@ -582,13 +724,22 @@ export default function Chat() {
 
   const activeChannel = channels.find((c) => c.id === activeId) ?? null;
   const typingNames = [...typing.values()].map((t) => t.name);
+  const activeRecordings = (activeId !== null ? recordingUsers[activeId] : undefined) ?? {};
+  const recordingNames = Object.entries(activeRecordings)
+    .filter(([id]) => Number(id) !== me.id)
+    .map(([, entry]) => entry.name);
   const inCallHere = call.state?.channelId === activeId;
   const callChannelName = call.state
     ? (channels.find((c) => c.id === call.state?.channelId)?.name ?? "")
     : "";
   const ringChannel = ring ? channels.find((c) => c.id === ring.channelId) : null;
   const onlineMembers = new Set(online);
-  const canEdit = activeChannel && (activeChannel.ownerId === me.id || me.admin);
+  const canEdit = Boolean(activeChannel && (activeChannel.ownerId === me.id || me.admin));
+  const canPin = canEdit;
+  const activeCallPeers = (activeId !== null ? callRoster[activeId] : undefined) ?? [];
+  const activeCallIds = new Set(activeCallPeers.map((peer) => peer.id));
+  const activeRecordingIds = new Set(Object.keys(activeRecordings).map(Number));
+  const onlineCount = members.filter((member) => online.has(member.id)).length;
 
   const leaveChannel = async () => {
     if (!activeChannel) return;
@@ -600,6 +751,24 @@ export default function Chat() {
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Odejít se nepodařilo");
     }
+  };
+
+  const joinCall = async () => {
+    if (!activeChannel) return;
+    await call.join(activeChannel.id);
+    if (me.settings.callSounds) playCallTone("join");
+  };
+
+  const leaveCall = () => {
+    call.leave();
+    if (me.settings.callSounds) playCallTone("leave");
+  };
+
+  const callForUi = { ...call, leave: leaveCall };
+
+  const openMembers = () => {
+    if (isCompact) setMembersOpen(true);
+    else setMembersRail((open) => !open);
   };
 
   return (
@@ -614,10 +783,11 @@ export default function Chat() {
         </div>
 
         <div className="sidebarSection">
-          <span>Kanály</span>
+          <span>Kanály · {channels.length}</span>
           <button
             className="iconBtn"
             title="Nový kanál"
+            aria-label="Nový kanál"
             onClick={() => setChannelModal({ mode: "create", channel: null })}
           >
             <Icon name="plus" size={17} />
@@ -625,26 +795,50 @@ export default function Chat() {
         </div>
 
         <nav className="channelList">
-          {channels.map((channel) => (
-            <button
-              key={channel.id}
-              className={`channelItem${channel.id === activeId ? " active" : ""}`}
-              onClick={() => openChannel(channel.id)}
-            >
-              <span className="channelIcon">
-                <Icon name={channel.visibility === "private" ? "lock" : "hash"} size={17} />
-              </span>
-              <span className="channelInfo">
-                <span className="channelName">{channel.name}</span>
-                <span className="channelPreview">{previewLabel(channel)}</span>
-              </span>
-              {channel.unread > 0 && (
-                <span className="unreadBadge">{channel.unread > 99 ? "99+" : channel.unread}</span>
-              )}
-            </button>
-          ))}
+          {channels.map((channel) => {
+            const peers = callRoster[channel.id] ?? [];
+            const isRecording = Object.keys(recordingUsers[channel.id] ?? {}).some((id) => Number(id) !== me.id);
+            return (
+              <button
+                key={channel.id}
+                className={`channelItem${channel.id === activeId ? " active" : ""}`}
+                onClick={() => openChannel(channel.id)}
+              >
+                <span className="channelIcon">
+                  <Icon name={channel.visibility === "private" ? "lock" : "hash"} size={17} />
+                </span>
+                <span className="channelInfo">
+                  <span className="channelName">{channel.name}</span>
+                  <span className="channelPreview">
+                    {peers.length > 0 ? (
+                      <>
+                        <Icon name="phone" size={11} /> {peers.length} v hovoru
+                      </>
+                    ) : isRecording ? (
+                      "někdo nahrává…"
+                    ) : (
+                      previewLabel(channel)
+                    )}
+                  </span>
+                </span>
+                {isRecording && <span className="recordingMini" title="Někdo nahrává hlasovku" />}
+                {peers.length > 0 && !channel.unread && (
+                  <span className="callMini" title={`${peers.length} v hovoru`}>
+                    <Icon name="phone" size={11} />
+                  </span>
+                )}
+                {channel.unread > 0 && (
+                  <span className="unreadBadge">{channel.unread > 99 ? "99+" : channel.unread}</span>
+                )}
+              </button>
+            );
+          })}
           {!loadingChannels && channels.length === 0 && (
-            <p className="sidebarEmpty">Zatím žádné kanály.<br />Vytvoř první!</p>
+            <p className="sidebarEmpty">
+              Zatím žádné kanály.
+              <br />
+              Vytvoř první!
+            </p>
           )}
           {loadingChannels && (
             <div className="sidebarLoading">
@@ -657,13 +851,21 @@ export default function Chat() {
 
         <div className="userPanel">
           <button className="userCard" onClick={() => setSettingsOpen(true)}>
-            <Avatar name={me.displayName} color={me.avatarColor} size={36} online={wsStatus === "online"} />
+            <Avatar
+              name={me.displayName}
+              color={me.avatarColor}
+              avatarId={me.avatarId}
+              size={36}
+              online={wsStatus === "online"}
+            />
             <span className="userInfo">
               <strong>{me.displayName}</strong>
               <small>
-                {me.statusEmoji || me.statusText
-                  ? `${me.statusEmoji} ${me.statusText}`.trim()
-                  : `@${me.username}`}
+                {timeoutMs > 0
+                  ? "⏱ timeout"
+                  : me.statusEmoji || me.statusText
+                    ? `${me.statusEmoji} ${me.statusText}`.trim()
+                    : `@${me.username}`}
               </small>
             </span>
             <Icon name="settings" size={16} />
@@ -687,6 +889,16 @@ export default function Chat() {
                 <p>
                   {activeChannel.topic ||
                     (activeChannel.visibility === "private" ? "Soukromý kanál" : "Veřejný kanál")}
+                  <span className="headerDot">·</span>
+                  {onlineCount} online
+                  {activeCallPeers.length > 0 && (
+                    <>
+                      <span className="headerDot">·</span>
+                      <span className="headerCallInfo">
+                        <Icon name="phone" size={11} /> {activeCallPeers.length} v hovoru
+                      </span>
+                    </>
+                  )}
                 </p>
               </div>
             </div>
@@ -705,7 +917,9 @@ export default function Chat() {
           <div className="headerActions">
             <span className={`wsBadge ${wsStatus}`} title={`Připojení: ${wsStatus}`}>
               <span className={`dot ${wsStatus}`} />
-              <span className="wsText">{wsStatus === "online" ? "online" : wsStatus === "connecting" ? "připojuji" : "offline"}</span>
+              <span className="wsText">
+                {wsStatus === "online" ? "online" : wsStatus === "connecting" ? "připojuji" : "offline"}
+              </span>
             </span>
 
             {activeChannel && (
@@ -721,9 +935,22 @@ export default function Chat() {
 
             {activeChannel && (
               <button
-                className="iconBtn memberBtn"
+                className={`iconBtn pinHeaderBtn${pinsOpen ? " active" : ""}`}
+                title="Připnuté zprávy"
+                aria-label="Připnuté zprávy"
+                onClick={() => setPinsOpen((open) => !open)}
+              >
+                <Icon name="pin" size={18} />
+                {pins.length > 0 && <span className="headerBadge pinned">{pins.length}</span>}
+              </button>
+            )}
+
+            {activeChannel && (
+              <button
+                className={`iconBtn memberBtn${membersRail && !isCompact ? " active" : ""}`}
                 title="Členové kanálu"
-                onClick={() => setMembersOpen(true)}
+                aria-label="Členové kanálu"
+                onClick={openMembers}
               >
                 <Icon name="users" size={18} />
                 <span className="memberCount">{members.length || activeChannel.memberCount}</span>
@@ -734,6 +961,7 @@ export default function Chat() {
               <button
                 className="iconBtn"
                 title="Upravit kanál"
+                aria-label="Upravit kanál"
                 onClick={() => setChannelModal({ mode: "edit", channel: activeChannel })}
               >
                 <Icon name="settings" size={18} />
@@ -744,131 +972,186 @@ export default function Chat() {
               <button
                 className={`iconBtn callHeaderBtn${inCallHere ? " active" : ""}`}
                 onClick={() => {
-                  if (inCallHere) call.leave();
-                  else void call.join(activeChannel.id);
+                  if (inCallHere) leaveCall();
+                  else void joinCall();
                 }}
                 title={inCallHere ? "Zavěsit hovor" : "Zavolat do kanálu"}
                 aria-label={inCallHere ? "Zavěsit hovor" : "Zavolat do kanálu"}
               >
                 <Icon name={inCallHere ? "phoneOff" : "phone"} size={18} />
+                {activeCallPeers.length > 0 && <span className="headerBadge call">{activeCallPeers.length}</span>}
               </button>
             )}
           </div>
         </header>
 
-        {searchOpen && activeChannel && (
-          <SearchPanel
-            channelId={activeChannel.id}
-            channelName={activeChannel.name}
-            onJump={(id) => void jumpToMessage(id)}
-            onClose={() => setSearchOpen(false)}
-          />
-        )}
-
-        <div className="chatBody">
-          {wsStatus === "offline" && (
-            <div className="offlineBar">
-              <Icon name="alert" size={15} /> Připojení ztraceno. Zkouším se znovu připojit…
-            </div>
-          )}
-
-          {ring && ringChannel && (
-            <div className="ringBanner">
-              <span className="ringPulse">
-                <Icon name="phone" size={18} />
-              </span>
-              <div className="ringText">
-                <strong>{ring.from.displayName} volá</strong>
-                <span>v kanálu #{ringChannel.name}</span>
+        <div className="chatWorkspace">
+          <div className="chatColumn">
+            {wsStatus === "offline" && (
+              <div className="offlineBar">
+                <Icon name="alert" size={15} /> Připojení ztraceno. Zkouším se znovu připojit…
               </div>
-              <button
-                className="btn primary tiny"
-                onClick={() => {
-                  void call.join(ring.channelId);
-                  setRing(null);
-                }}
-              >
-                Připojit se
-              </button>
-              <button className="iconBtn" onClick={() => setRing(null)} aria-label="Ignorovat">
-                <Icon name="x" size={16} />
-              </button>
-            </div>
-          )}
+            )}
 
-          {activeChannel ? (
-            <>
-              <MessageList
-                messages={messages}
-                me={me}
+            {ring && ringChannel && (
+              <div className="ringBanner">
+                <span className="ringPulse">
+                  <Icon name="phone" size={18} />
+                </span>
+                <div className="ringText">
+                  <strong>{ring.from.displayName} volá</strong>
+                  <span>v kanálu #{ringChannel.name}</span>
+                </div>
+                <button
+                  className="btn primary tiny"
+                  onClick={() => {
+                    void call.join(ring.channelId);
+                    if (me.settings.callSounds) playCallTone("join");
+                    setRing(null);
+                  }}
+                >
+                  Připojit se
+                </button>
+                <button className="iconBtn" onClick={() => setRing(null)} aria-label="Ignorovat">
+                  <Icon name="x" size={16} />
+                </button>
+              </div>
+            )}
+
+            {searchOpen && activeChannel && (
+              <SearchPanel
                 channelId={activeChannel.id}
                 channelName={activeChannel.name}
-                loading={loadingMessages}
-                hasMore={hasMore}
-                loadingOlder={loadingOlder}
-                typingNames={typingNames}
-                showTimestamps={me.settings.showTimestamps}
-                focusId={focusId}
-                onLoadOlder={() => void loadOlder()}
-                onReact={(message, emoji) => void react(message, emoji)}
-                onDelete={(message) => void deleteMessage(message)}
-                onEdit={editMessage}
-                onReply={setReplyTo}
-                onVote={(poll, ids) => void votePoll(poll, ids)}
-                onClosePoll={(poll) => void closePoll(poll)}
-                onProfile={setProfileUser}
-                onMention={openProfileByUsername}
+                onJump={(id) => void jumpToMessage(id)}
+                onClose={() => setSearchOpen(false)}
               />
-              <Composer
-                channelId={activeChannel.id}
-                channelName={activeChannel.name}
-                replyTo={replyTo}
-                maxUploadMB={config.maxUploadMB}
-                enterToSend={me.settings.enterToSend}
+            )}
+
+            <div className="chatBody">
+              {activeChannel ? (
+                <>
+                  <MessageList
+                    messages={messages}
+                    me={me}
+                    channelId={activeChannel.id}
+                    channelName={activeChannel.name}
+                    loading={loadingMessages}
+                    hasMore={hasMore}
+                    loadingOlder={loadingOlder}
+                    typingNames={typingNames}
+                    showTimestamps={me.settings.showTimestamps}
+                    focusId={focusId}
+                    canPin={canPin}
+                    onPin={(message) => void togglePin(message)}
+                    onLoadOlder={() => void loadOlder()}
+                    onReact={(message, emoji) => void react(message, emoji)}
+                    onDelete={(message) => void deleteMessage(message)}
+                    onEdit={editMessage}
+                    onReply={setReplyTo}
+                    onVote={(poll, ids) => void votePoll(poll, ids)}
+                    onClosePoll={(poll) => void closePoll(poll)}
+                    onProfile={setProfileUser}
+                    onMention={openProfileByUsername}
+                  />
+                  {recordingNames.length > 0 && (
+                    <div className="recordingPeers">
+                      <span className="recordDot tiny" />
+                      <span>
+                        {recordingNames.length === 1
+                          ? `${recordingNames[0]} nahrává hlasovku…`
+                          : `${recordingNames.join(", ")} nahrávají hlasovky…`}
+                      </span>
+                    </div>
+                  )}
+                  <Composer
+                    channelId={activeChannel.id}
+                    channelName={activeChannel.name}
+                    replyTo={replyTo}
+                    maxUploadMB={config.maxUploadMB}
+                    enterToSend={me.settings.enterToSend}
+                    members={members}
+                    timeoutMsLeft={timeoutMs}
+                    timeoutReason={me.timeoutReason}
+                    onCancelReply={() => setReplyTo(null)}
+                    onSend={sendMessage}
+                    onPoll={() => setPollOpen(true)}
+                  />
+                </>
+              ) : (
+                <div className="welcomePane">
+                  <div className="welcomeMark">M</div>
+                  <h2>Vítej v Melvinu{me.displayName ? `, ${me.displayName}` : ""}!</h2>
+                  <p>
+                    {loadingChannels
+                      ? "Načítám kanály…"
+                      : channels.length === 0
+                        ? "Zatím tu není žádný kanál. Vytvoř první a pozvi partu."
+                        : "Vyber kanál vlevo a začni psát."}
+                  </p>
+                  <button className="btn primary" onClick={() => setChannelModal({ mode: "create", channel: null })}>
+                    <Icon name="plus" size={17} /> Vytvořit kanál
+                  </button>
+                  <div className="welcomeHints">
+                    <span>
+                      <Icon name="mic" size={15} /> hlasovky
+                    </span>
+                    <span>
+                      <Icon name="phone" size={15} /> hovory
+                    </span>
+                    <span>
+                      <Icon name="poll" size={15} /> ankety
+                    </span>
+                    <span>
+                      <Icon name="paperclip" size={15} /> soubory do {config.maxUploadMB} MB
+                    </span>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {!isCompact && membersRail && activeChannel && (
+            <aside className="memberRail">
+              <header className="memberRailHead">
+                <div>
+                  <h3>Členové</h3>
+                  <p>{onlineCount} online · {members.length} celkem</p>
+                </div>
+                <div className="row gap">
+                  <button
+                    className="iconBtn"
+                    title="Spravovat členy"
+                    aria-label="Spravovat členy"
+                    onClick={() => setChannelModal({ mode: "edit", channel: activeChannel })}
+                  >
+                    <Icon name="settings" size={15} />
+                  </button>
+                  <button
+                    className="iconBtn"
+                    title="Skrýt panel"
+                    aria-label="Skrýt panel"
+                    onClick={() => setMembersRail(false)}
+                  >
+                    <Icon name="x" size={15} />
+                  </button>
+                </div>
+              </header>
+              <MemberList
                 members={members}
-                onCancelReply={() => setReplyTo(null)}
-                onSend={sendMessage}
-                onPoll={() => setPollOpen(true)}
+                online={onlineMembers}
+                me={me}
+                callIds={activeCallIds}
+                recordingIds={activeRecordingIds}
+                onProfile={setProfileUser}
+                channelName={activeChannel.name}
               />
-            </>
-          ) : (
-            <div className="welcomePane">
-              <div className="welcomeMark">M</div>
-              <h2>Vítej v Melvinu{me.displayName ? `, ${me.displayName}` : ""}!</h2>
-              <p>
-                {loadingChannels
-                  ? "Načítám kanály…"
-                  : channels.length === 0
-                    ? "Zatím tu není žádný kanál. Vytvoř první a pozvi partu."
-                    : "Vyber kanál vlevo a začni psát."}
-              </p>
-              <button
-                className="btn primary"
-                onClick={() => setChannelModal({ mode: "create", channel: null })}
-              >
-                <Icon name="plus" size={17} /> Vytvořit kanál
-              </button>
-              <div className="welcomeHints">
-                <span>
-                  <Icon name="mic" size={15} /> hlasovky
-                </span>
-                <span>
-                  <Icon name="phone" size={15} /> hovory
-                </span>
-                <span>
-                  <Icon name="poll" size={15} /> ankety
-                </span>
-                <span>
-                  <Icon name="paperclip" size={15} /> soubory do {config.maxUploadMB} MB
-                </span>
-              </div>
-            </div>
+            </aside>
           )}
         </div>
       </main>
 
       {call.state && (
-        <CallBar call={call} channelName={callChannelName} peers={call.state.peers} />
+        <CallBar call={callForUi} channelName={callChannelName} peers={call.state.peers} />
       )}
 
       {membersOpen && activeChannel && (
@@ -878,7 +1161,7 @@ export default function Chat() {
               <div>
                 <h3>Členové</h3>
                 <p>
-                  #{activeChannel.name} · {members.length} lidí
+                  #{activeChannel.name} · {onlineCount} online / {members.length}
                 </p>
               </div>
               <button className="iconBtn" onClick={() => setMembersOpen(false)} aria-label="Zavřít">
@@ -886,37 +1169,17 @@ export default function Chat() {
               </button>
             </header>
             <div className="membersList">
-              {members.map((member) => {
-                const isOnline = onlineMembers.has(member.id);
-                return (
-                  <button
-                    type="button"
-                    className="memberEntry"
-                    key={member.id}
-                    onClick={() => {
-                      setMembersOpen(false);
-                      setProfileUser(member);
-                    }}
-                  >
-                    <Avatar name={member.displayName} color={member.avatarColor} size={34} online={isOnline} />
-                    <span className="memberEntryInfo">
-                      <strong>
-                        {member.displayName}
-                        {member.id === me.id && " (ty)"}
-                      </strong>
-                      <small>@{member.username}</small>
-                      {(member.statusEmoji || member.statusText) && (
-                        <small className="memberStatus" title="Stav">
-                          {member.statusEmoji} {member.statusText}
-                        </small>
-                      )}
-                    </span>
-                    {member.role === "owner" && <span className="ownerTag">vlastník</span>}
-                    {member.banned && <span className="banTag">ban</span>}
-                    {member.admin && <span className="adminTag">admin</span>}
-                  </button>
-                );
-              })}
+              <MemberList
+                members={members}
+                online={onlineMembers}
+                me={me}
+                callIds={activeCallIds}
+                recordingIds={activeRecordingIds}
+                onProfile={(member) => {
+                  setMembersOpen(false);
+                  setProfileUser(member);
+                }}
+              />
             </div>
             <footer className="drawerFoot">
               {canEdit ? (
@@ -978,6 +1241,26 @@ export default function Chat() {
         />
       )}
 
+      {pinsOpen && activeChannel && (
+        <PinsPanel
+          channelName={activeChannel.name}
+          messages={pins}
+          canPin={canPin}
+          onClose={() => setPinsOpen(false)}
+          onJump={(id) => void jumpToMessage(id)}
+          onUnpin={(message) => void togglePin(message)}
+        />
+      )}
+
+      {messagesUser && (
+        <UserMessagesPanel
+          user={messagesUser}
+          channels={channels}
+          onClose={() => setMessagesUser(null)}
+          onJump={openMessageAt}
+        />
+      )}
+
       {profileUser && (
         <ProfileCard
           user={profileUser}
@@ -986,13 +1269,20 @@ export default function Chat() {
           onClose={() => setProfileUser(null)}
           onUpdated={(updated) => {
             setProfileUser(updated);
-            setMembers((prev) => prev.map((member) => (member.id === updated.id ? { ...member, ...updated } : member)));
+            setMembers((prev) =>
+              prev.map((member) => (member.id === updated.id ? { ...member, ...updated } : member)),
+            );
             if (updated.id === me.id) void refresh();
           }}
           onEditSelf={() => {
             setProfileUser(null);
             setSettingsOpen(true);
           }}
+          onViewMessages={(target) => {
+            setProfileUser(null);
+            setMessagesUser(target);
+          }}
+          onOpenChannel={openChannel}
         />
       )}
     </div>

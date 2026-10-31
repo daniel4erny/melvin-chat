@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { fileURL } from "../api";
 import { toast } from "../toast";
 import type { Message, Poll, User } from "../types";
@@ -137,6 +137,81 @@ function PollCard({
   );
 }
 
+function VoicePlayer({ url, duration, name }: { url: string; duration: number; name: string }) {
+  const audioRef = useRef<HTMLAudioElement>(null);
+  const [playing, setPlaying] = useState(false);
+  const [current, setCurrent] = useState(0);
+  const [total, setTotal] = useState(duration || 0);
+
+  // Deterministic pseudo-waveform so every listener sees the same shape.
+  const bars = useMemo(
+    () => Array.from({ length: 34 }, (_, index) => 22 + ((index * 53 + (index % 5) * 17) % 62)),
+    [],
+  );
+  const progress = total > 0 ? Math.min(1, current / total) : 0;
+
+  const toggle = () => {
+    const audio = audioRef.current;
+    if (!audio) return;
+    if (audio.paused) {
+      void audio.play();
+    } else {
+      audio.pause();
+    }
+  };
+
+  return (
+    <div className="voicePlayer">
+      <audio
+        ref={audioRef}
+        src={url}
+        preload="metadata"
+        onPlay={() => setPlaying(true)}
+        onPause={() => setPlaying(false)}
+        onEnded={() => {
+          setPlaying(false);
+          setCurrent(0);
+        }}
+        onTimeUpdate={(event) => setCurrent(event.currentTarget.currentTime)}
+        onLoadedMetadata={(event) => {
+          if (Number.isFinite(event.currentTarget.duration)) setTotal(event.currentTarget.duration);
+        }}
+      />
+      <button className={`voicePlay${playing ? " playing" : ""}`} onClick={toggle} title={playing ? "Pauza" : "Přehrát hlasovku"}>
+        <Icon name={playing ? "pause" : "play"} size={17} />
+      </button>
+      <div className="voiceBody">
+        <div
+          className="voiceWave"
+          onClick={(event) => {
+            const audio = audioRef.current;
+            const box = event.currentTarget.getBoundingClientRect();
+            if (!audio || !total) return;
+            const ratio = Math.min(1, Math.max(0, (event.clientX - box.left) / box.width));
+            audio.currentTime = ratio * total;
+            setCurrent(ratio * total);
+          }}
+        >
+          {bars.map((height, index) => {
+            const reached = index / bars.length <= progress;
+            return (
+              <span
+                key={index}
+                className={`voiceBar${reached ? " reached" : ""}`}
+                style={{ height: `${height}%` }}
+              />
+            );
+          })}
+        </div>
+        <div className="voiceMeta">
+          <span className="voiceLabel">{name || "Hlasovka"}</span>
+          <span>{formatDuration(playing || current > 0 ? current : total)}</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function AttachmentView({ message }: { message: Message }) {
   const att = message.attachment;
   if (!att) return null;
@@ -161,15 +236,7 @@ function AttachmentView({ message }: { message: Message }) {
   }
 
   if (att.kind === "voice") {
-    return (
-      <div className="voiceAttachment">
-        <span className="voiceIcon">
-          <Icon name="mic" size={16} />
-        </span>
-        <audio src={url} controls preload="metadata" />
-        <span className="voiceDuration">{att.duration ? formatDuration(att.duration) : ""}</span>
-      </div>
-    );
+    return <VoicePlayer url={url} duration={att.duration} name={att.name.startsWith("hlasovka-") ? "Hlasovka" : att.name} />;
   }
 
   if (att.kind === "audio") {
@@ -213,6 +280,8 @@ export default function MessageItem({
   onClosePoll,
   onProfile,
   onMention,
+  canPin,
+  onPin,
 }: {
   message: Message;
   me: User;
@@ -228,6 +297,8 @@ export default function MessageItem({
   onClosePoll: (poll: Poll) => void;
   onProfile?: (user: User) => void;
   onMention?: (username: string) => void;
+  canPin?: boolean;
+  onPin?: (message: Message) => void;
 }) {
   const [picker, setPicker] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -239,6 +310,10 @@ export default function MessageItem({
   const editRef = useRef<HTMLTextAreaElement>(null);
   const canDelete = me.id === message.user.id || me.admin;
   const canEdit = me.id === message.user.id && !message.deleted && message.text.length > 0;
+  const mentionsMe = useMemo(
+    () => new RegExp(`(?:^|[\\s(])@${me.username.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i").test(message.text),
+    [message.text, me.username],
+  );
 
   useEffect(() => {
     if (!editing) return;
@@ -333,7 +408,7 @@ export default function MessageItem({
       id={`msg-${message.id}`}
       ref={rootRef}
       onClick={onMessageClick}
-      className={`message${grouped ? " grouped" : ""}${flash ? " msgFlash" : ""}${message.deleted ? " deleted" : ""}${menuOpen || touchActive ? " actionsOpen" : ""}${editing ? " editing" : ""}`}
+      className={`message${grouped ? " grouped" : ""}${flash ? " msgFlash" : ""}${message.deleted ? " deleted" : ""}${menuOpen || touchActive ? " actionsOpen" : ""}${editing ? " editing" : ""}${mentionsMe ? " mentioned" : ""}${message.pinned ? " isPinned" : ""}`}
     >
       <div className="messageAvatar">
         {!grouped && (
@@ -343,7 +418,12 @@ export default function MessageItem({
             onClick={() => onProfile?.(message.user)}
             aria-label={`Profil ${message.user.displayName}`}
           >
-            <Avatar name={message.user.displayName} color={message.user.avatarColor} size={38} />
+            <Avatar
+              name={message.user.displayName}
+              color={message.user.avatarColor}
+              avatarId={message.user.avatarId}
+              size={40}
+            />
           </button>
         )}
       </div>
@@ -368,6 +448,14 @@ export default function MessageItem({
               </time>
             )}
             {message.editedAt && <span className="editedTag">upraveno</span>}
+            {message.pinned && (
+              <span className="pinnedTag">
+                <Icon name="pin" size={11} /> připnuto
+              </span>
+            )}
+            {message.user.timeoutUntil && message.user.timeoutUntil > Date.now() && (
+              <span className="timeoutTag smallTag">timeout</span>
+            )}
           </div>
         )}
 
@@ -451,10 +539,42 @@ export default function MessageItem({
       {!message.deleted && (
         <div className="messageActions">
           <button
+            className={`iconBtn quickReact${picker ? " active" : ""}`}
+            title="Reagovat"
+            aria-label="Reagovat"
+            onClick={() => {
+              setPicker((open) => !open);
+              setMenuOpen(false);
+            }}
+          >
+            <Icon name="smile" size={17} />
+          </button>
+          <button
+            className="iconBtn quickReply"
+            title="Odpovědět"
+            aria-label="Odpovědět"
+            onClick={() => onReply(message)}
+          >
+            <Icon name="reply" size={17} />
+          </button>
+          {canPin && (
+            <button
+              className="iconBtn quickPin"
+              title={message.pinned ? "Odepnout" : "Připnout"}
+              aria-label={message.pinned ? "Odepnout" : "Připnout"}
+              onClick={() => onPin?.(message)}
+            >
+              <Icon name="pin" size={16} />
+            </button>
+          )}
+          <button
             className={`iconBtn${menuOpen ? " active" : ""}`}
             title="Další akce"
             aria-label="Další akce"
-            onClick={() => setMenuOpen((open) => !open)}
+            onClick={() => {
+              setMenuOpen((open) => !open);
+              setPicker(false);
+            }}
           >
             <Icon name="more" size={18} />
           </button>
@@ -484,6 +604,17 @@ export default function MessageItem({
           {message.text && (
             <button role="menuitem" onClick={() => void copyText()}>
               <Icon name="copy" size={16} /> Kopírovat text
+            </button>
+          )}
+          {canPin && (
+            <button
+              role="menuitem"
+              onClick={() => {
+                setMenuOpen(false);
+                onPin?.(message);
+              }}
+            >
+              <Icon name="pin" size={16} /> {message.pinned ? "Odepnout zprávu" : "Připnout zprávu"}
             </button>
           )}
           {canEdit && (

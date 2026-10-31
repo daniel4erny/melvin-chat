@@ -248,7 +248,7 @@ export default function ChannelModal({
                   }}
                   disabled={isMe}
                 >
-                  <Avatar name={user.displayName} color={user.avatarColor} size={32} />
+                  <Avatar name={user.displayName} color={user.avatarColor} avatarId={user.avatarId} size={32} />
                   <span className="memberRowInfo">
                     <strong>
                       {user.displayName}
