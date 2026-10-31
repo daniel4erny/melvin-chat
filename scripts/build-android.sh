@@ -26,7 +26,7 @@ rm -rf .releases/android
 mkdir -p .releases/android
 APK="$(find desktop/src-tauri/gen/android -name '*.apk' | head -1)"
 cp "$APK" ".releases/android/melvin-${VERSION}-arm64-debug.apk"
-(cd .releases/android && sha256sum * > SHA256SUMS)
+(cd .releases/android && sha256sum $(ls | grep -v '^SHA256SUMS$') > SHA256SUMS)
 
 echo "Android builds:"
 ls -lh .releases/android

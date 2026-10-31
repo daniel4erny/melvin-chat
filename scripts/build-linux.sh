@@ -14,7 +14,7 @@ mkdir -p .releases/linux
 cp desktop/src-tauri/target/release/bundle/deb/*.deb .releases/linux/
 cp desktop/src-tauri/target/release/bundle/rpm/*.rpm .releases/linux/
 cp desktop/src-tauri/target/release/bundle/appimage/*.AppImage .releases/linux/
-(cd .releases/linux && sha256sum * > SHA256SUMS)
+(cd .releases/linux && sha256sum $(ls | grep -v '^SHA256SUMS$') > SHA256SUMS)
 
 echo "Linux builds:"
 ls -lh .releases/linux
