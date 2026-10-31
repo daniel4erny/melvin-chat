@@ -148,9 +148,14 @@ func (a *App) userProfile(w http.ResponseWriter, r *http.Request, viewer User) {
 		online = false
 		target.LastSeen = 0
 	}
+	ips := []UserIP{}
+	if viewer.Admin {
+		ips, _ = a.db.ListUserIPs(id)
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"user": target, "stats": stats, "online": online,
 		"timeoutLeft": timeoutRemaining(target), "sharedChannels": stats.SharedChannels,
+		"ips": ips,
 	})
 }
 

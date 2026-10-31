@@ -205,10 +205,17 @@ func readJSON(r *http.Request, dst any) error {
 
 func clientIP(r *http.Request) string {
 	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-		return strings.TrimSpace(strings.Split(xff, ",")[0])
+		// The rightmost entry is the address added by the closest proxy. Using
+		// the leftmost value would trust anything the client sent itself.
+		parts := strings.Split(xff, ",")
+		for i := len(parts) - 1; i >= 0; i-- {
+			if ip := strings.TrimSpace(parts[i]); ip != "" {
+				return ip
+			}
+		}
 	}
 	if xr := r.Header.Get("X-Real-IP"); xr != "" {
-		return xr
+		return strings.TrimSpace(xr)
 	}
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {

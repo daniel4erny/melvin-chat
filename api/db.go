@@ -123,6 +123,17 @@ CREATE TABLE IF NOT EXISTS users (
 	created_at    INTEGER NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS user_ips (
+	user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+	ip         TEXT NOT NULL,
+	first_seen INTEGER NOT NULL,
+	last_seen  INTEGER NOT NULL,
+	hits       INTEGER NOT NULL DEFAULT 1,
+	user_agent TEXT NOT NULL DEFAULT '',
+	PRIMARY KEY (user_id, ip)
+);
+CREATE INDEX IF NOT EXISTS idx_user_ips_user ON user_ips(user_id, last_seen DESC);
+
 CREATE TABLE IF NOT EXISTS sessions (
 	token_hash TEXT PRIMARY KEY,
 	user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -682,6 +693,53 @@ func (d *DB) UserStats(userID, viewerID int64) (UserStats, error) {
 		stats.SharedChannels = append(stats.SharedChannels, ch)
 	}
 	return stats, rows.Err()
+}
+
+// UserIP is one address an account has connected from, kept for moderation.
+type UserIP struct {
+	IP        string `json:"ip"`
+	FirstSeen int64  `json:"firstSeen"`
+	LastSeen  int64  `json:"lastSeen"`
+	Hits      int    `json:"hits"`
+	UserAgent string `json:"userAgent"`
+}
+
+func (d *DB) RecordUserIP(userID int64, ip, userAgent string) {
+	ip = strings.TrimSpace(ip)
+	if userID <= 0 || ip == "" {
+		return
+	}
+	if len(userAgent) > 300 {
+		userAgent = userAgent[:300]
+	}
+	now := nowMS()
+	_, _ = d.sql.Exec(`
+		INSERT INTO user_ips (user_id, ip, first_seen, last_seen, hits, user_agent)
+		VALUES (?, ?, ?, ?, 1, ?)
+		ON CONFLICT(user_id, ip) DO UPDATE SET
+			last_seen = excluded.last_seen,
+			hits = user_ips.hits + 1,
+			user_agent = excluded.user_agent`,
+		userID, ip, now, now, userAgent)
+}
+
+func (d *DB) ListUserIPs(userID int64) ([]UserIP, error) {
+	rows, err := d.sql.Query(`
+		SELECT ip, first_seen, last_seen, hits, user_agent
+		FROM user_ips WHERE user_id = ? ORDER BY last_seen DESC LIMIT 20`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	ips := []UserIP{}
+	for rows.Next() {
+		var entry UserIP
+		if err := rows.Scan(&entry.IP, &entry.FirstSeen, &entry.LastSeen, &entry.Hits, &entry.UserAgent); err != nil {
+			return nil, err
+		}
+		ips = append(ips, entry)
+	}
+	return ips, rows.Err()
 }
 
 func (d *DB) SetPassword(id int64, hash string) error {

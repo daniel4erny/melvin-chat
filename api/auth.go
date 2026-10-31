@@ -229,6 +229,7 @@ func (a *App) register(w http.ResponseWriter, r *http.Request) {
 			a.notifyChannelsChanged(ch.ID)
 		}
 	}
+	a.db.RecordUserIP(u.ID, clientIP(r), r.UserAgent())
 	a.issueSession(w, u)
 }
 
@@ -255,6 +256,7 @@ func (a *App) login(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusForbidden, msg)
 		return
 	}
+	a.db.RecordUserIP(u.ID, clientIP(r), r.UserAgent())
 	a.issueSession(w, u)
 }
 
@@ -267,6 +269,7 @@ func (a *App) logout(w http.ResponseWriter, r *http.Request, _ User) {
 }
 
 func (a *App) me(w http.ResponseWriter, r *http.Request, u User) {
+	a.db.RecordUserIP(u.ID, clientIP(r), r.UserAgent())
 	writeJSON(w, http.StatusOK, map[string]any{"user": u})
 }
 
