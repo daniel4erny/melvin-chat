@@ -10,7 +10,7 @@ RUN --mount=type=cache,target=/root/.bun/install/cache \
 
 # ---- 2. build the React app ----
 FROM deps AS build
-COPY tsconfig.json tsconfig.app.json tsconfig.server.json vite.config.ts index.html vite-env.d.ts ./
+COPY tsconfig.json tsconfig.app.json tsconfig.server.json vite.config.ts index.html vite-env.d.ts main.ts ./
 COPY src/ src/
 COPY public/ public/
 RUN bun run build
