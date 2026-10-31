@@ -15,6 +15,13 @@ const COLOR_CHOICES = ["#5865f2", "#1abc9c", "#eb459e", "#f0b232", "#3ba55c", "#
 
 type Tab = "profile" | "appearance" | "chat" | "privacy" | "users" | "invites" | "system";
 
+// Accept a bare domain the way people write it; the API requires a scheme.
+function normalizeWebsite(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed || /^https?:\/\//i.test(trimmed)) return trimmed;
+  return `https://${trimmed}`;
+}
+
 const TABS: { id: Tab; label: string; icon: IconName; admin?: boolean }[] = [
   { id: "profile", label: "Profil", icon: "user" },
   { id: "appearance", label: "Vzhled", icon: "palette" },
@@ -295,8 +302,14 @@ export default function SettingsModal({
       setError("Zobrazované jméno nesmí být prázdné");
       return;
     }
+    const site = normalizeWebsite(website);
+    if (site.length > 160) {
+      setError("Odkaz je moc dlouhý (max 160 znaků)");
+      return;
+    }
     setSaving(true);
     setError("");
+    setWebsite(site);
     try {
       await onSave({
         displayName: displayName.trim(),
@@ -306,7 +319,7 @@ export default function SettingsModal({
         statusText: statusText.trim(),
         pronouns: pronouns.trim(),
         location: place.trim(),
-        website: website.trim(),
+        website: site,
         settings,
       });
       toast.success("Nastavení uloženo");
@@ -525,11 +538,15 @@ export default function SettingsModal({
                 <span>Web nebo odkaz</span>
                 <input
                   value={website}
-                  onChange={(e) => setWebsite(e.target.value)}
+                  onChange={(e) => {
+                    setWebsite(e.target.value);
+                    if (error) setError("");
+                  }}
                   maxLength={160}
                   placeholder="https://…"
                   spellCheck={false}
                 />
+                <small>Když vynecháš https://, doplníme ho automaticky.</small>
               </label>
 
               <div className="field">
