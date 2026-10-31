@@ -35,6 +35,7 @@ type Message struct {
 	CreatedAt  int64       `json:"createdAt"`
 	EditedAt   *int64      `json:"editedAt,omitempty"`
 	Deleted    bool        `json:"deleted"`
+	Pinned     bool        `json:"pinned"`
 	Attachment *Attachment `json:"attachment,omitempty"`
 	Poll       *Poll       `json:"poll,omitempty"`
 	ReplyTo    *int64      `json:"replyTo,omitempty"`
@@ -52,15 +53,17 @@ type baseMessage struct {
 	createdAt    int64
 	editedAt     sql.NullInt64
 	deleted      int
+	pinned       int
 	user         User
 }
 
 const messageSelect = `
 	SELECT m.id, m.channel_id, m.user_id, m.text, m.attachment_id, m.poll_id, m.reply_to,
-	       m.created_at, m.edited_at, m.deleted,
+	       m.created_at, m.edited_at, m.deleted, m.pinned,
 	       u.username, u.display_name, u.avatar_color, u.bio, u.is_admin,
 	       u.status_emoji, u.status_text, u.banned, u.ban_reason, u.banned_until,
-	       u.settings, u.created_at
+	       u.settings, u.created_at, u.avatar_id, u.pronouns, u.location, u.website, u.last_seen,
+	       u.timeout_until, u.timeout_reason
 	FROM messages m JOIN users u ON u.id = m.user_id`
 
 func scanBaseMessage(s scanner) (baseMessage, error) {
@@ -68,12 +71,14 @@ func scanBaseMessage(s scanner) (baseMessage, error) {
 	var admin, banned int
 	var bannedUntil sql.NullInt64
 	var settings string
+	var timeoutUntil sql.NullInt64
 	err := s.Scan(
 		&b.id, &b.channelID, &b.userID, &b.text, &b.attachmentID, &b.pollID, &b.replyTo,
-		&b.createdAt, &b.editedAt, &b.deleted,
+		&b.createdAt, &b.editedAt, &b.deleted, &b.pinned,
 		&b.user.Username, &b.user.DisplayName, &b.user.AvatarColor, &b.user.Bio, &admin,
 		&b.user.StatusEmoji, &b.user.StatusText, &banned, &b.user.BanReason, &bannedUntil,
-		&settings, &b.user.CreatedAt,
+		&settings, &b.user.CreatedAt, &b.user.AvatarID, &b.user.Pronouns, &b.user.Location,
+		&b.user.Website, &b.user.LastSeen, &timeoutUntil, &b.user.TimeoutReason,
 	)
 	if err != nil {
 		return b, err
@@ -84,6 +89,10 @@ func scanBaseMessage(s scanner) (baseMessage, error) {
 	if bannedUntil.Valid {
 		v := bannedUntil.Int64
 		b.user.BannedUntil = &v
+	}
+	if timeoutUntil.Valid {
+		v := timeoutUntil.Int64
+		b.user.TimeoutUntil = &v
 	}
 	b.user.Settings = decodeSettings(settings)
 	return b, nil
@@ -182,6 +191,7 @@ func (d *DB) hydrateMessages(rows []baseMessage, viewerID int64) ([]Message, err
 			Text:      b.text,
 			CreatedAt: b.createdAt,
 			Deleted:   b.deleted != 0,
+			Pinned:    b.pinned != 0,
 			Reactions: reactions[b.id],
 		}
 		if m.Reactions == nil {
@@ -582,6 +592,10 @@ func (a *App) sendMessage(w http.ResponseWriter, r *http.Request, u User) {
 		writeErr(w, http.StatusForbidden, "Do tohoto kanálu nemáš přístup")
 		return
 	}
+	if u.TimeoutActive() {
+		timeoutBlocked(w)
+		return
+	}
 	var in struct {
 		Text         string  `json:"text"`
 		AttachmentID *string `json:"attachmentId"`
@@ -685,6 +699,10 @@ func (a *App) react(w http.ResponseWriter, r *http.Request, u User) {
 		writeErr(w, http.StatusBadRequest, "Neplatná reakce")
 		return
 	}
+	if u.TimeoutActive() {
+		timeoutBlocked(w)
+		return
+	}
 	channelID, reactions, err := a.db.ToggleReaction(id, u.ID, in.Emoji)
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
@@ -721,4 +739,113 @@ func (a *App) searchMessages(w http.ResponseWriter, r *http.Request, u User) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"messages": msgs})
+}
+
+func (d *DB) PinnedMessages(channelID, viewerID int64) ([]Message, error) {
+	rows, err := d.sql.Query(
+		messageSelect+" WHERE m.channel_id = ? AND m.pinned = 1 AND m.deleted = 0 ORDER BY m.id DESC",
+		channelID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	base := []baseMessage{}
+	for rows.Next() {
+		b, err := scanBaseMessage(rows)
+		if err != nil {
+			rows.Close()
+			return nil, err
+		}
+		base = append(base, b)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return d.hydrateMessages(base, viewerID)
+}
+
+func (d *DB) SetMessagePinned(id int64, pinned bool) error {
+	flag := 0
+	if pinned {
+		flag = 1
+	}
+	res, err := d.sql.Exec("UPDATE messages SET pinned = ? WHERE id = ? AND deleted = 0", flag, id)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return errNotFound
+	}
+	return nil
+}
+
+func (a *App) listPinnedMessages(w http.ResponseWriter, r *http.Request, u User) {
+	channelID, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, "Neplatný kanál")
+		return
+	}
+	if _, member, _ := a.db.MemberRole(channelID, u.ID); !member {
+		writeErr(w, http.StatusForbidden, "Do tohoto kanálu nemáš přístup")
+		return
+	}
+	messages, err := a.db.PinnedMessages(channelID, u.ID)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "Připnuté zprávy se nepodařilo načíst")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"messages": messages})
+}
+
+func (a *App) setPinned(w http.ResponseWriter, r *http.Request, u User, pinned bool) {
+	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, "Neplatná zpráva")
+		return
+	}
+	var channelID int64
+	if err := a.db.sql.QueryRow(
+		"SELECT channel_id FROM messages WHERE id = ? AND deleted = 0", id,
+	).Scan(&channelID); err != nil {
+		writeErr(w, http.StatusNotFound, "Zpráva neexistuje")
+		return
+	}
+	role, member, _ := a.db.MemberRole(channelID, u.ID)
+	if !member {
+		writeErr(w, http.StatusForbidden, "Do tohoto kanálu nemáš přístup")
+		return
+	}
+	if role != "owner" && !u.Admin {
+		writeErr(w, http.StatusForbidden, "Připínat zprávy může jen vlastník kanálu nebo admin")
+		return
+	}
+	if err := a.db.SetMessagePinned(id, pinned); err != nil {
+		writeErr(w, http.StatusNotFound, "Zprávu se nepodařilo připnout")
+		return
+	}
+	msg, err := a.db.GetMessage(id, u.ID)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "Zprávu se nepodařilo načíst")
+		return
+	}
+	if pinned {
+		a.hub.BroadcastChannel(channelID, map[string]any{
+			"type": "message:pinned", "channelId": channelID, "message": msg,
+		})
+	} else {
+		a.hub.BroadcastChannel(channelID, map[string]any{
+			"type": "message:unpinned", "channelId": channelID, "messageId": id,
+		})
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"message": msg})
+}
+
+func (a *App) pinMessage(w http.ResponseWriter, r *http.Request, u User) {
+	a.setPinned(w, r, u, true)
+}
+
+func (a *App) unpinMessage(w http.ResponseWriter, r *http.Request, u User) {
+	a.setPinned(w, r, u, false)
 }

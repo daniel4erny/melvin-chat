@@ -12,31 +12,34 @@ import (
 )
 
 type Hub struct {
-	mu      sync.RWMutex
-	clients map[*Client]struct{}
-	byUser  map[int64]map[*Client]struct{}
-	calls   map[int64]map[int64]int
-	db      *DB
+	mu        sync.RWMutex
+	clients   map[*Client]struct{}
+	byUser    map[int64]map[*Client]struct{}
+	calls     map[int64]map[int64]int
+	callMuted map[int64]map[int64]bool
+	db        *DB
 }
 
 type Client struct {
-	hub      *Hub
-	conn     *websocket.Conn
-	user     User
-	send     chan []byte
-	mu       sync.Mutex
-	channels map[int64]bool
-	calls    map[int64]bool
-	visible  bool
-	closed   bool
+	hub       *Hub
+	conn      *websocket.Conn
+	user      User
+	send      chan []byte
+	mu        sync.Mutex
+	channels  map[int64]bool
+	calls     map[int64]bool
+	recording map[int64]bool
+	visible   bool
+	closed    bool
 }
 
 func newHub(db *DB) *Hub {
 	return &Hub{
-		clients: map[*Client]struct{}{},
-		byUser:  map[int64]map[*Client]struct{}{},
-		calls:   map[int64]map[int64]int{},
-		db:      db,
+		clients:   map[*Client]struct{}{},
+		byUser:    map[int64]map[*Client]struct{}{},
+		calls:     map[int64]map[int64]int{},
+		callMuted: map[int64]map[int64]bool{},
+		db:        db,
 	}
 }
 
@@ -76,15 +79,17 @@ func (h *Hub) ServeWS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	c := &Client{
-		hub:      h,
-		conn:     conn,
-		user:     u,
-		send:     make(chan []byte, 128),
-		channels: map[int64]bool{},
-		calls:    map[int64]bool{},
-		visible:  u.Settings.Presence != "nobody",
+		hub:       h,
+		conn:      conn,
+		user:      u,
+		send:      make(chan []byte, 128),
+		channels:  map[int64]bool{},
+		calls:     map[int64]bool{},
+		recording: map[int64]bool{},
+		visible:   u.Settings.Presence != "nobody",
 	}
 	h.add(c)
+	h.db.TouchLastSeen(u.ID)
 
 	go c.writePump()
 	c.readPump()
@@ -123,10 +128,17 @@ func (h *Hub) remove(c *Client) {
 	}
 	stillOnline := len(h.byUser[c.user.ID]) > 0
 	callChannels := []int64{}
+	recordingChannels := []int64{}
 	c.mu.Lock()
 	for ch := range c.calls {
 		callChannels = append(callChannels, ch)
 		c.calls[ch] = false
+	}
+	for ch, on := range c.recording {
+		if on {
+			recordingChannels = append(recordingChannels, ch)
+		}
+		c.recording[ch] = false
 	}
 	c.closed = true
 	c.mu.Unlock()
@@ -134,11 +146,20 @@ func (h *Hub) remove(c *Client) {
 
 	_ = c.conn.Close()
 
+	for _, ch := range recordingChannels {
+		h.BroadcastChannel(ch, map[string]any{
+			"type": "voice:recording", "channelId": ch, "recording": false,
+			"user": map[string]any{"id": c.user.ID, "displayName": c.user.DisplayName},
+		})
+	}
 	for _, ch := range callChannels {
 		h.leaveCall(c, ch)
 	}
 	if !stillOnline && c.visible {
 		h.broadcastAll(map[string]any{"type": "presence", "userId": c.user.ID, "online": false})
+	}
+	if !stillOnline {
+		h.db.TouchLastSeen(c.user.ID)
 	}
 }
 
@@ -330,6 +351,8 @@ type wsEvent struct {
 	SDP         json.RawMessage `json:"sdp"`
 	Candidate   json.RawMessage `json:"candidate"`
 	Renegotiate bool            `json:"renegotiate"`
+	Recording   bool            `json:"recording"`
+	Muted       bool            `json:"muted"`
 }
 
 func (c *Client) readPump() {
@@ -358,6 +381,10 @@ func (c *Client) readPump() {
 			c.hub.leaveCall(c, ev.ChannelID)
 		case "call:offer", "call:answer", "call:ice":
 			c.relaySignal(ev)
+		case "call:mute":
+			c.setCallMuted(ev.ChannelID, ev.Muted)
+		case "voice:recording":
+			c.voiceRecording(ev.ChannelID, ev.Recording)
 		}
 	}
 }
@@ -394,6 +421,13 @@ func (h *Hub) joinCall(c *Client, channelID int64) {
 	if _, member, _ := h.db.MemberRole(channelID, c.user.ID); !member {
 		return
 	}
+	if fresh, err := h.db.UserByID(c.user.ID); err == nil && fresh.TimeoutActive() {
+		c.enqueue(map[string]any{
+			"type":    "timeout:blocked",
+			"message": "Máš timeout – do hovoru se teď nepřipojíš.",
+		})
+		return
+	}
 	h.mu.Lock()
 	if h.calls[channelID] == nil {
 		h.calls[channelID] = map[int64]int{}
@@ -416,7 +450,8 @@ func (h *Hub) joinCall(c *Client, channelID int64) {
 	for _, uid := range participants {
 		if u, err := h.db.UserByID(uid); err == nil {
 			users = append(users, map[string]any{
-				"id": u.ID, "username": u.Username, "displayName": u.DisplayName, "avatarColor": u.AvatarColor,
+				"id": u.ID, "username": u.Username, "displayName": u.DisplayName,
+				"avatarColor": u.AvatarColor, "avatarId": u.AvatarID,
 			})
 		}
 	}
@@ -427,6 +462,7 @@ func (h *Hub) joinCall(c *Client, channelID int64) {
 			"user": map[string]any{
 				"id": c.user.ID, "username": c.user.Username,
 				"displayName": c.user.DisplayName, "avatarColor": c.user.AvatarColor,
+				"avatarId": c.user.AvatarID,
 			},
 		})
 		h.BroadcastChannel(channelID, map[string]any{
@@ -434,9 +470,85 @@ func (h *Hub) joinCall(c *Client, channelID int64) {
 			"from": map[string]any{
 				"id": c.user.ID, "username": c.user.Username,
 				"displayName": c.user.DisplayName, "avatarColor": c.user.AvatarColor,
+				"avatarId": c.user.AvatarID,
 			},
 		})
 	}
+	h.BroadcastChannel(channelID, h.callState(channelID))
+}
+
+// callState builds the roster every channel member needs to render call UI:
+// who is in the call and whether their mic is muted.
+func (h *Hub) callState(channelID int64) map[string]any {
+	h.mu.RLock()
+	ids := make([]int64, 0, len(h.calls[channelID]))
+	for uid := range h.calls[channelID] {
+		ids = append(ids, uid)
+	}
+	muted := map[int64]bool{}
+	for uid, on := range h.callMuted[channelID] {
+		muted[uid] = on
+	}
+	h.mu.RUnlock()
+	users := make([]map[string]any, 0, len(ids))
+	for _, uid := range ids {
+		if u, err := h.db.UserByID(uid); err == nil {
+			users = append(users, map[string]any{
+				"id": u.ID, "username": u.Username, "displayName": u.DisplayName,
+				"avatarColor": u.AvatarColor, "avatarId": u.AvatarID,
+				"muted": muted[uid],
+			})
+		}
+	}
+	return map[string]any{"type": "call:state", "channelId": channelID, "participants": users}
+}
+
+func (c *Client) setCallMuted(channelID int64, muted bool) {
+	if channelID == 0 {
+		return
+	}
+	if _, member, _ := c.hub.db.MemberRole(channelID, c.user.ID); !member {
+		return
+	}
+	c.hub.mu.Lock()
+	if muted {
+		if c.hub.callMuted[channelID] == nil {
+			c.hub.callMuted[channelID] = map[int64]bool{}
+		}
+		c.hub.callMuted[channelID][c.user.ID] = true
+	} else if entry := c.hub.callMuted[channelID]; entry != nil {
+		delete(entry, c.user.ID)
+	}
+	c.hub.mu.Unlock()
+	c.hub.BroadcastChannel(channelID, map[string]any{
+		"type": "call:mute", "channelId": channelID, "userId": c.user.ID, "muted": muted,
+	})
+}
+
+// voiceRecording tells the channel that someone is recording a voice message,
+// so the UI can show it the same way it shows "typing".
+func (c *Client) voiceRecording(channelID int64, recording bool) {
+	if channelID == 0 {
+		return
+	}
+	if _, member, _ := c.hub.db.MemberRole(channelID, c.user.ID); !member {
+		return
+	}
+	c.mu.Lock()
+	if c.recording[channelID] == recording {
+		c.mu.Unlock()
+		return
+	}
+	c.recording[channelID] = recording
+	c.mu.Unlock()
+	c.hub.BroadcastChannel(channelID, map[string]any{
+		"type": "voice:recording", "channelId": channelID, "recording": recording,
+		"user": map[string]any{
+			"id": c.user.ID, "displayName": c.user.DisplayName,
+			"username": c.user.Username, "avatarColor": c.user.AvatarColor,
+			"avatarId": c.user.AvatarID,
+		},
+	})
 }
 
 func (h *Hub) leaveCall(c *Client, channelID int64) {
@@ -459,11 +571,15 @@ func (h *Hub) leaveCall(c *Client, channelID int64) {
 			delete(h.calls, channelID)
 		}
 	}
+	if entry := h.callMuted[channelID]; entry != nil {
+		delete(entry, c.user.ID)
+	}
 	h.mu.Unlock()
 	if left {
 		h.BroadcastChannel(channelID, map[string]any{
 			"type": "call:peer-left", "channelId": channelID, "userId": c.user.ID,
 		})
+		h.BroadcastChannel(channelID, h.callState(channelID))
 	}
 }
 
@@ -483,6 +599,7 @@ func (c *Client) relaySignal(ev wsEvent) {
 		"from": map[string]any{
 			"id": c.user.ID, "username": c.user.Username,
 			"displayName": c.user.DisplayName, "avatarColor": c.user.AvatarColor,
+			"avatarId": c.user.AvatarID,
 		},
 		"renegotiate": ev.Renegotiate,
 	}

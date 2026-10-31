@@ -34,10 +34,17 @@ func (a *App) ensureUploadDirs() error {
 	if err := os.MkdirAll(filepath.Join(a.uploadDir, "tmp"), 0o750); err != nil {
 		return err
 	}
+	if err := os.MkdirAll(filepath.Join(a.uploadDir, "avatars"), 0o750); err != nil {
+		return err
+	}
 	return os.MkdirAll(filepath.Join(a.uploadDir, "files"), 0o750)
 }
 
 func (a *App) initUpload(w http.ResponseWriter, r *http.Request, u User) {
+	if u.TimeoutActive() {
+		timeoutBlocked(w)
+		return
+	}
 	var in struct {
 		Name     string  `json:"name"`
 		Mime     string  `json:"mime"`

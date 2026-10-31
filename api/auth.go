@@ -141,6 +141,8 @@ func (a *App) issueSession(w http.ResponseWriter, u User) {
 		writeErr(w, http.StatusInternalServerError, "Nepodařilo se vytvořit session")
 		return
 	}
+	u.LastSeen = nowMS()
+	a.db.TouchLastSeen(u.ID)
 	http.SetCookie(w, &http.Cookie{
 		Name:     "melvin_session",
 		Value:    token,
@@ -274,6 +276,9 @@ type profileUpdate struct {
 	AvatarColor *string       `json:"avatarColor"`
 	StatusEmoji *string       `json:"statusEmoji"`
 	StatusText  *string       `json:"statusText"`
+	Pronouns    *string       `json:"pronouns"`
+	Location    *string       `json:"location"`
+	Website     *string       `json:"website"`
 	Settings    *UserSettings `json:"settings"`
 }
 
@@ -306,10 +311,32 @@ func (a *App) updateMe(w http.ResponseWriter, r *http.Request, u User) {
 		writeErr(w, http.StatusBadRequest, "Stav je moc dlouhý (max 60 znaků)")
 		return
 	}
+	if p.Pronouns != nil && len([]rune(strings.TrimSpace(*p.Pronouns))) > 24 {
+		writeErr(w, http.StatusBadRequest, "Zájmena jsou moc dlouhá (max 24 znaků)")
+		return
+	}
+	if p.Location != nil && len([]rune(strings.TrimSpace(*p.Location))) > 48 {
+		writeErr(w, http.StatusBadRequest, "Lokace je moc dlouhá (max 48 znaků)")
+		return
+	}
+	if p.Website != nil {
+		site := strings.TrimSpace(*p.Website)
+		if len(site) > 160 {
+			writeErr(w, http.StatusBadRequest, "Odkaz je moc dlouhý (max 160 znaků)")
+			return
+		}
+		if site != "" && !strings.HasPrefix(site, "https://") && !strings.HasPrefix(site, "http://") {
+			writeErr(w, http.StatusBadRequest, "Odkaz musí začínat http:// nebo https://")
+			return
+		}
+	}
 	if p.Settings != nil {
 		p.Settings = sanitizeSettings(p.Settings)
 	}
-	updated, err := a.db.UpdateUserProfile(u.ID, p.DisplayName, p.Bio, p.AvatarColor, p.StatusEmoji, p.StatusText, p.Settings)
+	updated, err := a.db.UpdateUserProfile(
+		u.ID, p.DisplayName, p.Bio, p.AvatarColor, p.StatusEmoji, p.StatusText,
+		p.Pronouns, p.Location, p.Website, p.Settings,
+	)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "Nepodařilo se uložit profil")
 		return
@@ -340,6 +367,17 @@ func sanitizeSettings(s *UserSettings) *UserSettings {
 	case "rounded", "flat":
 	default:
 		out.BubbleStyle = "rounded"
+	}
+	switch out.SoundStyle {
+	case "chime", "pop", "blip", "bell":
+	default:
+		out.SoundStyle = "chime"
+	}
+	if out.SoundVolume < 0 {
+		out.SoundVolume = 0
+	}
+	if out.SoundVolume > 1 {
+		out.SoundVolume = 1
 	}
 	if !colorRe.MatchString(out.Accent) {
 		out.Accent = "#5865f2"

@@ -264,12 +264,13 @@ func (d *DB) ListChannelMembers(id int64) ([]ChannelMember, error) {
 	for rows.Next() {
 		var m ChannelMember
 		var admin, banned int
-		var bannedUntil sql.NullInt64
+		var bannedUntil, timeoutUntil sql.NullInt64
 		var settings string
 		if err := rows.Scan(
 			&m.ID, &m.Username, &m.DisplayName, &m.AvatarColor, &m.Bio, &admin,
 			&m.StatusEmoji, &m.StatusText, &banned, &m.BanReason, &bannedUntil,
-			&settings, &m.CreatedAt, &m.Role,
+			&settings, &m.CreatedAt, &m.AvatarID, &m.Pronouns, &m.Location, &m.Website,
+			&m.LastSeen, &timeoutUntil, &m.TimeoutReason, &m.Role,
 		); err != nil {
 			return nil, err
 		}
@@ -278,6 +279,10 @@ func (d *DB) ListChannelMembers(id int64) ([]ChannelMember, error) {
 		if bannedUntil.Valid {
 			v := bannedUntil.Int64
 			m.BannedUntil = &v
+		}
+		if timeoutUntil.Valid {
+			v := timeoutUntil.Int64
+			m.TimeoutUntil = &v
 		}
 		m.Settings = decodeSettings(settings)
 		members = append(members, m)

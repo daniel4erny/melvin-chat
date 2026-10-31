@@ -233,6 +233,10 @@ func (a *App) createPoll(w http.ResponseWriter, r *http.Request, u User) {
 		writeErr(w, http.StatusForbidden, "Do tohoto kanálu nemáš přístup")
 		return
 	}
+	if u.TimeoutActive() {
+		timeoutBlocked(w)
+		return
+	}
 	var in struct {
 		Question  string   `json:"question"`
 		Options   []string `json:"options"`

@@ -29,6 +29,9 @@ type UserSettings struct {
 	Notifications  bool    `json:"notifications"`
 	Presence       string  `json:"presence"` // everyone | nobody
 	MessageSound   bool    `json:"messageSound"`
+	SoundStyle     string  `json:"soundStyle"`  // chime | pop | blip | bell
+	SoundVolume    float64 `json:"soundVolume"` // 0 - 1
+	CallSounds     bool    `json:"callSounds"`
 	BubbleStyle    string  `json:"bubbleStyle"` // rounded | flat
 }
 
@@ -44,24 +47,39 @@ func DefaultSettings() UserSettings {
 		Notifications:  true,
 		Presence:       "everyone",
 		MessageSound:   true,
+		SoundStyle:     "chime",
+		SoundVolume:    0.6,
+		CallSounds:     true,
 		BubbleStyle:    "rounded",
 	}
 }
 
 type User struct {
-	ID          int64        `json:"id"`
-	Username    string       `json:"username"`
-	DisplayName string       `json:"displayName"`
-	AvatarColor string       `json:"avatarColor"`
-	Bio         string       `json:"bio"`
-	Admin       bool         `json:"admin"`
-	StatusEmoji string       `json:"statusEmoji"`
-	StatusText  string       `json:"statusText"`
-	Banned      bool         `json:"banned"`
-	BanReason   string       `json:"banReason"`
-	BannedUntil *int64       `json:"bannedUntil,omitempty"`
-	Settings    UserSettings `json:"settings"`
-	CreatedAt   int64        `json:"createdAt"`
+	ID            int64        `json:"id"`
+	Username      string       `json:"username"`
+	DisplayName   string       `json:"displayName"`
+	AvatarColor   string       `json:"avatarColor"`
+	Bio           string       `json:"bio"`
+	Admin         bool         `json:"admin"`
+	StatusEmoji   string       `json:"statusEmoji"`
+	StatusText    string       `json:"statusText"`
+	Banned        bool         `json:"banned"`
+	BanReason     string       `json:"banReason"`
+	BannedUntil   *int64       `json:"bannedUntil,omitempty"`
+	AvatarID      string       `json:"avatarId"`
+	Pronouns      string       `json:"pronouns"`
+	Location      string       `json:"location"`
+	Website       string       `json:"website"`
+	LastSeen      int64        `json:"lastSeen"`
+	TimeoutUntil  *int64       `json:"timeoutUntil,omitempty"`
+	TimeoutReason string       `json:"timeoutReason"`
+	Settings      UserSettings `json:"settings"`
+	CreatedAt     int64        `json:"createdAt"`
+}
+
+// TimeoutActive reports whether the account is temporarily muted.
+func (u User) TimeoutActive() bool {
+	return u.TimeoutUntil != nil && *u.TimeoutUntil > nowMS()
 }
 
 // BanActive reports whether the account is currently blocked from logging in.
@@ -94,6 +112,13 @@ CREATE TABLE IF NOT EXISTS users (
 	ban_reason    TEXT NOT NULL DEFAULT '',
 	banned_until  INTEGER,
 	banned_at     INTEGER,
+	avatar_id     TEXT NOT NULL DEFAULT '',
+	pronouns      TEXT NOT NULL DEFAULT '',
+	location      TEXT NOT NULL DEFAULT '',
+	website       TEXT NOT NULL DEFAULT '',
+	last_seen     INTEGER NOT NULL DEFAULT 0,
+	timeout_until  INTEGER,
+	timeout_reason TEXT NOT NULL DEFAULT '',
 	settings      TEXT NOT NULL DEFAULT '{}',
 	created_at    INTEGER NOT NULL
 );
@@ -174,7 +199,8 @@ CREATE TABLE IF NOT EXISTS messages (
 	reply_to      INTEGER,
 	created_at    INTEGER NOT NULL,
 	edited_at     INTEGER,
-	deleted       INTEGER NOT NULL DEFAULT 0
+	deleted       INTEGER NOT NULL DEFAULT 0,
+	pinned        INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_messages_channel ON messages(channel_id, id);
 CREATE INDEX IF NOT EXISTS idx_messages_user ON messages(user_id);
@@ -227,12 +253,25 @@ func openDB(path string) (*DB, error) {
 		return nil, err
 	}
 	if err := ensureColumns(conn, "users", map[string]string{
-		"status_emoji": "TEXT NOT NULL DEFAULT ''",
-		"status_text":  "TEXT NOT NULL DEFAULT ''",
-		"banned":       "INTEGER NOT NULL DEFAULT 0",
-		"ban_reason":   "TEXT NOT NULL DEFAULT ''",
-		"banned_until": "INTEGER",
-		"banned_at":    "INTEGER",
+		"status_emoji":   "TEXT NOT NULL DEFAULT ''",
+		"status_text":    "TEXT NOT NULL DEFAULT ''",
+		"banned":         "INTEGER NOT NULL DEFAULT 0",
+		"ban_reason":     "TEXT NOT NULL DEFAULT ''",
+		"banned_until":   "INTEGER",
+		"banned_at":      "INTEGER",
+		"avatar_id":      "TEXT NOT NULL DEFAULT ''",
+		"pronouns":       "TEXT NOT NULL DEFAULT ''",
+		"location":       "TEXT NOT NULL DEFAULT ''",
+		"website":        "TEXT NOT NULL DEFAULT ''",
+		"last_seen":      "INTEGER NOT NULL DEFAULT 0",
+		"timeout_until":  "INTEGER",
+		"timeout_reason": "TEXT NOT NULL DEFAULT ''",
+	}); err != nil {
+		conn.Close()
+		return nil, err
+	}
+	if err := ensureColumns(conn, "messages", map[string]string{
+		"pinned": "INTEGER NOT NULL DEFAULT 0",
 	}); err != nil {
 		conn.Close()
 		return nil, err
@@ -304,10 +343,21 @@ func decodeSettings(raw string) UserSettings {
 	if s.FontScale < 0.7 || s.FontScale > 1.5 {
 		s.FontScale = 1
 	}
+	switch s.SoundStyle {
+	case "chime", "pop", "blip", "bell":
+	default:
+		s.SoundStyle = "chime"
+	}
+	if s.SoundVolume < 0 {
+		s.SoundVolume = 0
+	}
+	if s.SoundVolume > 1 {
+		s.SoundVolume = 1
+	}
 	return s
 }
 
-const userCols = "u.id, u.username, u.display_name, u.avatar_color, u.bio, u.is_admin, u.status_emoji, u.status_text, u.banned, u.ban_reason, u.banned_until, u.settings, u.created_at"
+const userCols = "u.id, u.username, u.display_name, u.avatar_color, u.bio, u.is_admin, u.status_emoji, u.status_text, u.banned, u.ban_reason, u.banned_until, u.settings, u.created_at, u.avatar_id, u.pronouns, u.location, u.website, u.last_seen, u.timeout_until, u.timeout_reason"
 
 // ensureColumns upgrades databases created by older versions in place.
 func ensureColumns(conn *sql.DB, table string, cols map[string]string) error {
@@ -349,11 +399,12 @@ func scanUser(s scanner) (User, error) {
 	var u User
 	var admin, banned int
 	var settings string
-	var bannedUntil sql.NullInt64
+	var bannedUntil, timeoutUntil sql.NullInt64
 	err := s.Scan(
 		&u.ID, &u.Username, &u.DisplayName, &u.AvatarColor, &u.Bio, &admin,
 		&u.StatusEmoji, &u.StatusText, &banned, &u.BanReason, &bannedUntil,
-		&settings, &u.CreatedAt,
+		&settings, &u.CreatedAt, &u.AvatarID, &u.Pronouns, &u.Location, &u.Website, &u.LastSeen,
+		&timeoutUntil, &u.TimeoutReason,
 	)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -366,6 +417,10 @@ func scanUser(s scanner) (User, error) {
 	if bannedUntil.Valid {
 		v := bannedUntil.Int64
 		u.BannedUntil = &v
+	}
+	if timeoutUntil.Valid {
+		v := timeoutUntil.Int64
+		u.TimeoutUntil = &v
 	}
 	u.Settings = decodeSettings(settings)
 	return u, nil
@@ -416,11 +471,12 @@ func scanUserWithHash(s scanner, hash *string) (User, string, error) {
 	var u User
 	var admin, banned int
 	var settings string
-	var bannedUntil sql.NullInt64
+	var bannedUntil, timeoutUntil sql.NullInt64
 	err := s.Scan(
 		&u.ID, &u.Username, &u.DisplayName, &u.AvatarColor, &u.Bio, &admin,
 		&u.StatusEmoji, &u.StatusText, &banned, &u.BanReason, &bannedUntil,
-		&settings, &u.CreatedAt, hash,
+		&settings, &u.CreatedAt, &u.AvatarID, &u.Pronouns, &u.Location, &u.Website, &u.LastSeen,
+		&timeoutUntil, &u.TimeoutReason, hash,
 	)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -433,6 +489,10 @@ func scanUserWithHash(s scanner, hash *string) (User, string, error) {
 	if bannedUntil.Valid {
 		v := bannedUntil.Int64
 		u.BannedUntil = &v
+	}
+	if timeoutUntil.Valid {
+		v := timeoutUntil.Int64
+		u.TimeoutUntil = &v
 	}
 	u.Settings = decodeSettings(settings)
 	return u, *hash, nil
@@ -459,7 +519,7 @@ func (d *DB) ListUsers() ([]User, error) {
 	return users, rows.Err()
 }
 
-func (d *DB) UpdateUserProfile(id int64, displayName, bio, avatarColor, statusEmoji, statusText *string, settings *UserSettings) (User, error) {
+func (d *DB) UpdateUserProfile(id int64, displayName, bio, avatarColor, statusEmoji, statusText, pronouns, location, website *string, settings *UserSettings) (User, error) {
 	u, err := d.UserByID(id)
 	if err != nil {
 		return User{}, err
@@ -479,31 +539,146 @@ func (d *DB) UpdateUserProfile(id int64, displayName, bio, avatarColor, statusEm
 	if statusText != nil {
 		u.StatusText = strings.TrimSpace(*statusText)
 	}
+	if pronouns != nil {
+		u.Pronouns = strings.TrimSpace(*pronouns)
+	}
+	if location != nil {
+		u.Location = strings.TrimSpace(*location)
+	}
+	if website != nil {
+		u.Website = strings.TrimSpace(*website)
+	}
 	if settings != nil {
-		s := *settings
-		if s.Theme == "" {
-			s.Theme = "dark"
-		}
-		if s.Presence == "" {
-			s.Presence = "everyone"
-		}
-		if s.Accent == "" {
-			s.Accent = "#5865f2"
-		}
-		if s.FontScale < 0.7 || s.FontScale > 1.5 {
-			s.FontScale = 1
-		}
-		u.Settings = s
+		u.Settings = *sanitizeSettings(settings)
 	}
 	raw, _ := json.Marshal(u.Settings)
 	_, err = d.sql.Exec(
-		"UPDATE users SET display_name = ?, bio = ?, avatar_color = ?, status_emoji = ?, status_text = ?, settings = ? WHERE id = ?",
-		u.DisplayName, u.Bio, u.AvatarColor, u.StatusEmoji, u.StatusText, string(raw), id,
+		"UPDATE users SET display_name = ?, bio = ?, avatar_color = ?, status_emoji = ?, status_text = ?, pronouns = ?, location = ?, website = ?, settings = ? WHERE id = ?",
+		u.DisplayName, u.Bio, u.AvatarColor, u.StatusEmoji, u.StatusText, u.Pronouns, u.Location, u.Website, string(raw), id,
 	)
 	if err != nil {
 		return User{}, err
 	}
 	return d.UserByID(id)
+}
+
+func (d *DB) SetAvatarID(id int64, avatarID string) (User, error) {
+	if _, err := d.sql.Exec("UPDATE users SET avatar_id = ? WHERE id = ?", avatarID, id); err != nil {
+		return User{}, err
+	}
+	return d.UserByID(id)
+}
+
+func (d *DB) TouchLastSeen(id int64) {
+	_, _ = d.sql.Exec("UPDATE users SET last_seen = ? WHERE id = ?", nowMS(), id)
+}
+
+func (d *DB) SetTimeout(id int64, until *int64, reason string) (User, error) {
+	if _, err := d.sql.Exec(
+		"UPDATE users SET timeout_until = ?, timeout_reason = ? WHERE id = ?",
+		until, reason, id,
+	); err != nil {
+		return User{}, err
+	}
+	return d.UserByID(id)
+}
+
+// UserMessages returns recent messages written by userID in channels the
+// viewer is also a member of, so a profile can never leak private history.
+func (d *DB) UserMessages(userID, viewerID int64, before int64, limit int) ([]Message, bool, error) {
+	if limit <= 0 || limit > 100 {
+		limit = 50
+	}
+	args := []any{userID, viewerID}
+	beforeClause := ""
+	if before > 0 {
+		beforeClause = " AND m.id < ?"
+		args = append(args, before)
+	}
+	args = append(args, limit+1)
+	rows, err := d.sql.Query(`
+		SELECT m.id FROM messages m
+		JOIN channel_members target ON target.channel_id = m.channel_id AND target.user_id = ?
+		JOIN channel_members viewer ON viewer.channel_id = m.channel_id AND viewer.user_id = ?
+		WHERE m.deleted = 0`+beforeClause+`
+		ORDER BY m.id DESC LIMIT ?`, args...)
+	if err != nil {
+		return nil, false, err
+	}
+	ids := []int64{}
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return nil, false, err
+		}
+		ids = append(ids, id)
+	}
+	rows.Close()
+	hasMore := len(ids) > limit
+	if hasMore {
+		ids = ids[:limit]
+	}
+	msgs, err := d.MessagesByIDs(ids, viewerID)
+	if err != nil {
+		return nil, false, err
+	}
+	// MessagesByIDs sorts ascending for humans; newest-first keeps history smooth.
+	for i, j := 0, len(msgs)-1; i < j; i, j = i+1, j-1 {
+		msgs[i], msgs[j] = msgs[j], msgs[i]
+	}
+	return msgs, hasMore, nil
+}
+
+type SharedChannel struct {
+	ID         int64  `json:"id"`
+	Name       string `json:"name"`
+	Visibility string `json:"visibility"`
+}
+
+type UserStats struct {
+	Messages       int64           `json:"messages"`
+	Reactions      int64           `json:"reactions"`
+	Channels       int64           `json:"channels"`
+	SharedChannels []SharedChannel `json:"sharedChannels"`
+}
+
+func (d *DB) UserStats(userID, viewerID int64) (UserStats, error) {
+	stats := UserStats{SharedChannels: []SharedChannel{}}
+	if err := d.sql.QueryRow(
+		"SELECT COUNT(*) FROM messages WHERE user_id = ? AND deleted = 0", userID,
+	).Scan(&stats.Messages); err != nil {
+		return stats, err
+	}
+	if err := d.sql.QueryRow(
+		"SELECT COUNT(*) FROM reactions r JOIN messages m ON m.id = r.message_id WHERE m.user_id = ? AND m.deleted = 0", userID,
+	).Scan(&stats.Reactions); err != nil {
+		return stats, err
+	}
+	if err := d.sql.QueryRow(
+		"SELECT COUNT(*) FROM channel_members WHERE user_id = ?", userID,
+	).Scan(&stats.Channels); err != nil {
+		return stats, err
+	}
+	rows, err := d.sql.Query(`
+		SELECT c.id, c.name, c.visibility
+		FROM channel_members mine
+		JOIN channel_members theirs ON theirs.channel_id = mine.channel_id AND theirs.user_id = ?
+		JOIN channels c ON c.id = mine.channel_id
+		WHERE mine.user_id = ?
+		ORDER BY c.name COLLATE NOCASE`, userID, viewerID)
+	if err != nil {
+		return stats, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var ch SharedChannel
+		if err := rows.Scan(&ch.ID, &ch.Name, &ch.Visibility); err != nil {
+			return stats, err
+		}
+		stats.SharedChannels = append(stats.SharedChannels, ch)
+	}
+	return stats, rows.Err()
 }
 
 func (d *DB) SetPassword(id int64, hash string) error {

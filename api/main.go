@@ -96,11 +96,18 @@ func main() {
 
 	mux.HandleFunc("PATCH /api/me", app.auth(app.updateMe))
 	mux.HandleFunc("POST /api/me/password", app.auth(app.changePassword))
+	mux.HandleFunc("POST /api/me/avatar", app.auth(app.uploadAvatar))
+	mux.HandleFunc("DELETE /api/me/avatar", app.auth(app.deleteAvatar))
+	mux.HandleFunc("GET /api/avatars/{id}", app.serveAvatar)
 	mux.HandleFunc("GET /api/users", app.auth(app.listUsers))
 	mux.HandleFunc("GET /api/users/{id}", app.auth(app.getUser))
+	mux.HandleFunc("GET /api/users/{id}/profile", app.auth(app.userProfile))
+	mux.HandleFunc("GET /api/users/{id}/messages", app.auth(app.userMessages))
 	mux.HandleFunc("PATCH /api/users/{id}", app.admin(app.updateUserAdmin))
 	mux.HandleFunc("POST /api/users/{id}/ban", app.admin(app.banUser))
 	mux.HandleFunc("POST /api/users/{id}/unban", app.admin(app.unbanUser))
+	mux.HandleFunc("POST /api/users/{id}/timeout", app.admin(app.timeoutUser))
+	mux.HandleFunc("DELETE /api/users/{id}/timeout", app.admin(app.clearTimeout))
 
 	mux.HandleFunc("GET /api/invites", app.admin(app.listInvites))
 	mux.HandleFunc("POST /api/invites", app.admin(app.createInvite))
@@ -117,10 +124,13 @@ func main() {
 	mux.HandleFunc("GET /api/channels/{id}/messages", app.auth(app.listMessages))
 	mux.HandleFunc("POST /api/channels/{id}/messages", app.auth(app.sendMessage))
 	mux.HandleFunc("GET /api/channels/{id}/search", app.auth(app.searchMessages))
+	mux.HandleFunc("GET /api/channels/{id}/pins", app.auth(app.listPinnedMessages))
 	mux.HandleFunc("POST /api/channels/{id}/polls", app.auth(app.createPoll))
 
 	mux.HandleFunc("DELETE /api/messages/{id}", app.auth(app.deleteMessage))
 	mux.HandleFunc("PATCH /api/messages/{id}", app.auth(app.updateMessage))
+	mux.HandleFunc("POST /api/messages/{id}/pin", app.auth(app.pinMessage))
+	mux.HandleFunc("DELETE /api/messages/{id}/pin", app.auth(app.unpinMessage))
 	mux.HandleFunc("POST /api/messages/{id}/reactions", app.auth(app.react))
 
 	mux.HandleFunc("POST /api/polls/{id}/vote", app.auth(app.votePoll))
