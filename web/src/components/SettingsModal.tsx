@@ -8,8 +8,8 @@ import { formatDateTime, validColor } from "../utils";
 import { Icon, type IconName } from "./Icon";
 import { Avatar, Modal, Spinner } from "./ui";
 
-const ACCENTS = ["#5eead4", "#a78bfa", "#f472b6", "#fbbf24", "#60a5fa", "#fb7185", "#34d399", "#f97316"];
-const COLOR_CHOICES = ["#5eead4", "#a78bfa", "#f472b6", "#fbbf24", "#60a5fa", "#fb7185", "#34d399", "#f97316", "#94a3b8"];
+const ACCENTS = ["#5865f2", "#1abc9c", "#eb459e", "#f0b232", "#3ba55c", "#ed4245", "#00a8fc", "#a78bfa"];
+const COLOR_CHOICES = ["#5865f2", "#1abc9c", "#eb459e", "#f0b232", "#3ba55c", "#ed4245", "#00a8fc", "#a78bfa", "#94a3b8"];
 
 type Tab = "profile" | "appearance" | "chat" | "privacy" | "system";
 
@@ -148,7 +148,7 @@ export default function SettingsModal({
     if (!window.confirm("Vrátit vzhled a chování chatu do výchozího nastavení?")) return;
     setSettings({
       theme: "dark",
-      accent: "#5eead4",
+      accent: "#5865f2",
       density: "cozy",
       fontScale: 1,
       showErrors: true,
@@ -348,26 +348,6 @@ export default function SettingsModal({
                     <span>
                       <strong>Kompaktní</strong>
                       <small>víc zpráv na obrazovce</small>
-                    </span>
-                  </button>
-                </div>
-                <div className="segmented compactSegments">
-                  <button
-                    className={settings.bubbleStyle === "rounded" ? "active" : ""}
-                    onClick={() => patch({ bubbleStyle: "rounded" })}
-                  >
-                    <span>
-                      <strong>Zaoblené</strong>
-                      <small>bubliny</small>
-                    </span>
-                  </button>
-                  <button
-                    className={settings.bubbleStyle === "flat" ? "active" : ""}
-                    onClick={() => patch({ bubbleStyle: "flat" })}
-                  >
-                    <span>
-                      <strong>Hranaté</strong>
-                      <small>minimalistické</small>
                     </span>
                   </button>
                 </div>

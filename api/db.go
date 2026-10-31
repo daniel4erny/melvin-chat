@@ -33,7 +33,7 @@ type UserSettings struct {
 func DefaultSettings() UserSettings {
 	return UserSettings{
 		Theme:          "dark",
-		Accent:         "#5eead4",
+		Accent:         "#5865f2",
 		Density:        "cozy",
 		FontScale:      1,
 		ShowErrors:     true,
@@ -69,7 +69,7 @@ CREATE TABLE IF NOT EXISTS users (
 	username      TEXT NOT NULL UNIQUE COLLATE NOCASE,
 	display_name  TEXT NOT NULL,
 	password_hash TEXT NOT NULL,
-	avatar_color  TEXT NOT NULL DEFAULT '#5eead4',
+	avatar_color  TEXT NOT NULL DEFAULT '#5865f2',
 	bio           TEXT NOT NULL DEFAULT '',
 	is_admin      INTEGER NOT NULL DEFAULT 0,
 	settings      TEXT NOT NULL DEFAULT '{}',
@@ -192,6 +192,49 @@ func openDB(path string) (*DB, error) {
 		conn.Close()
 		return nil, err
 	}
+	// Theme migration: the previous default accent was teal, the theme now uses
+	// Discord blurple. Only rewrite the exact old default value.
+	rows, err := conn.Query(`SELECT id, settings FROM users WHERE settings LIKE '%#5eead4%'`)
+	if err != nil {
+		conn.Close()
+		return nil, err
+	}
+	type accentFix struct {
+		id       int64
+		settings UserSettings
+	}
+	var fixes []accentFix
+	for rows.Next() {
+		var id int64
+		var raw string
+		if err := rows.Scan(&id, &raw); err != nil {
+			rows.Close()
+			conn.Close()
+			return nil, err
+		}
+		var s UserSettings
+		if json.Unmarshal([]byte(raw), &s) != nil || s.Accent != "#5eead4" {
+			continue
+		}
+		s.Accent = "#5865f2"
+		fixes = append(fixes, accentFix{id: id, settings: s})
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		conn.Close()
+		return nil, err
+	}
+	for _, fix := range fixes {
+		raw, err := json.Marshal(fix.settings)
+		if err != nil {
+			conn.Close()
+			return nil, err
+		}
+		if _, err := conn.Exec(`UPDATE users SET settings = ? WHERE id = ?`, string(raw), fix.id); err != nil {
+			conn.Close()
+			return nil, err
+		}
+	}
 	return &DB{sql: conn}, nil
 }
 
@@ -211,7 +254,7 @@ func decodeSettings(raw string) UserSettings {
 		s.Presence = "everyone"
 	}
 	if s.Accent == "" {
-		s.Accent = "#5eead4"
+		s.Accent = "#5865f2"
 	}
 	if s.FontScale < 0.7 || s.FontScale > 1.5 {
 		s.FontScale = 1
@@ -338,7 +381,7 @@ func (d *DB) UpdateUserProfile(id int64, displayName, bio, avatarColor *string, 
 			s.Presence = "everyone"
 		}
 		if s.Accent == "" {
-			s.Accent = "#5eead4"
+			s.Accent = "#5865f2"
 		}
 		if s.FontScale < 0.7 || s.FontScale > 1.5 {
 			s.FontScale = 1

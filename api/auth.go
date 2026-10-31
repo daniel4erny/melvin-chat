@@ -287,7 +287,7 @@ func sanitizeSettings(s *UserSettings) *UserSettings {
 		out.BubbleStyle = "rounded"
 	}
 	if !colorRe.MatchString(out.Accent) {
-		out.Accent = "#5eead4"
+		out.Accent = "#5865f2"
 	}
 	if out.FontScale < 0.85 {
 		out.FontScale = 0.85

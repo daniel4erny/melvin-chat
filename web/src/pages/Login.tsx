@@ -70,66 +70,16 @@ export default function Login() {
 
   return (
     <div className="authPage">
-      <div className="authGlow authGlowA" />
-      <div className="authGlow authGlowB" />
-
-      <section className="authIntro">
-        <div className="brand">
+      <section className="authCard">
+        <div className="authBrand">
           <span className="brandMark">M</span>
           <span className="brandName">Melvin</span>
-          <span className="brandTag">chat</span>
         </div>
-        <h1>
-          Chat, který je
-          <br />
-          jen <em>váš</em>.
-        </h1>
-        <p className="authLead">
-          Kanály pro partu, hlasovky, hovory, ankety a soubory do 500&nbsp;MB. Bez algoritmů, bez reklam,
-          na vašem vlastním serveru.
-        </p>
-        <ul className="featureList">
-          <li>
-            <Icon name="mic" /> Hlasovky a skupinové hovory
-          </li>
-          <li>
-            <Icon name="lock" /> Soukromé kanály jen pro pozvané
-          </li>
-          <li>
-            <Icon name="poll" /> Ankety a hlasování
-          </li>
-          <li>
-            <Icon name="image" /> Fotky, videa a velké soubory
-          </li>
-        </ul>
-        <div className="authFoot">
-          <span className="dot" /> {config ? `verze ${config.version}` : "vlastní server"}
-          <span className="sep">·</span>
-          {config ? `${config.maxUploadMB} MB na soubor` : "šifrovaně přes HTTPS"}
-        </div>
-      </section>
 
-      <section className="authCard">
-        <div className="authTabs" role="tablist">
-          <button
-            type="button"
-            role="tab"
-            aria-selected={mode === "login"}
-            className={mode === "login" ? "active" : ""}
-            onClick={() => switchMode("login")}
-          >
-            Přihlásit se
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={mode === "register"}
-            className={mode === "register" ? "active" : ""}
-            onClick={() => switchMode("register")}
-          >
-            Vytvořit účet
-          </button>
-        </div>
+        <header className="authHead">
+          <h1>{mode === "login" ? "Vítej zpět!" : "Vytvoř si účet"}</h1>
+          <p>{mode === "login" ? "Jsme rádi, že tě zase vidíme." : "Přidej se k partě na svém serveru."}</p>
+        </header>
 
         <form onSubmit={submit} className="authForm">
           {mode === "register" && (
@@ -241,6 +191,10 @@ export default function Login() {
           </p>
         )}
       </section>
+
+      <p className="authVersion">
+        {config ? `Melvin ${config.version} · ${config.maxUploadMB} MB na soubor` : "Melvin"}
+      </p>
     </div>
   );
 }

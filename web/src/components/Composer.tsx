@@ -314,7 +314,7 @@ export default function Composer({
             ref={textarea}
             rows={1}
             value={text}
-            placeholder={`Napiš zprávu do #${channelName}…`}
+            placeholder={`Napiš zprávu do #${channelName}`}
             onChange={(e) => onTextChange(e.target.value)}
             onKeyDown={handleKeyDown}
             maxLength={8000}

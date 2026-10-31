@@ -198,6 +198,7 @@ export default function MessageItem({
   onClosePoll: (poll: Poll) => void;
 }) {
   const [picker, setPicker] = useState(false);
+  const [actionsOpen, setActionsOpen] = useState(false);
   const canDelete = me.id === message.user.id || me.admin;
 
   const jumpTo = (id: number) => {
@@ -212,7 +213,12 @@ export default function MessageItem({
   return (
     <div
       id={`msg-${message.id}`}
-      className={`message${grouped ? " grouped" : ""}${flash ? " msgFlash" : ""}${message.deleted ? " deleted" : ""}`}
+      className={`message${grouped ? " grouped" : ""}${flash ? " msgFlash" : ""}${message.deleted ? " deleted" : ""}${actionsOpen ? " actionsOpen" : ""}`}
+      onClick={(e) => {
+        const target = e.target as HTMLElement;
+        if (target.closest("button, a, video, audio, input, textarea")) return;
+        setActionsOpen((open) => !open);
+      }}
     >
       <div className="messageAvatar">
         {!grouped && <Avatar name={message.user.displayName} color={message.user.avatarColor} size={38} />}
@@ -220,9 +226,7 @@ export default function MessageItem({
       <div className="messageMain">
         {!grouped && (
           <div className="messageHead">
-            <span className="messageAuthor" style={{ color: message.user.avatarColor }}>
-              {message.user.displayName}
-            </span>
+            <span className="messageAuthor">{message.user.displayName}</span>
             {message.user.admin && <span className="adminTag">admin</span>}
             {showTimestamps && (
               <time className="messageTime" title={formatDateTime(message.createdAt)}>
