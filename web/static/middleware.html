@@ -1,0 +1,17 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<meta charset="utf-8">
+	<title>DoMaT</title>
+</head>
+<body>
+	<form method="post" action="/api/login">
+		<input type="password" name="password" placeholder="Password" required autofocus>
+		<button>Log in</button>
+	</form>
+	<p id="wrong" hidden>Wrong password</p>
+	<script>
+		if (location.search.includes("wrong")) document.getElementById("wrong").hidden = false;
+	</script>
+</body>
+</html>

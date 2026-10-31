@@ -1,0 +1,6 @@
+# local dev only: docker compose merges this automatically, coolify deploys
+# docker-compose.yml alone and routes traffic through its own proxy
+services:
+  web:
+    ports:
+      - "127.0.0.1:8000:8000"

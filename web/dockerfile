@@ -1,0 +1,30 @@
+# syntax=docker/dockerfile:1.7
+FROM oven/bun:1 AS base
+WORKDIR /usr/src/app
+
+# ---- 1. deps: jen manifesty, download lezi v cache mountu -> sejme se jen dik zmene lockfile
+FROM base AS deps
+COPY package.json bun.lock ./
+# Instaluj vse (vite je devDep a build ho potrebuje)
+RUN --mount=type=cache,target=/root/.bun/install/cache \
+    bun install --frozen-lockfile
+
+# ---- 2. build: zavedou se zdrojaky, node_modules se nekopiruje
+FROM base AS build
+COPY package.json bun.lock ./
+RUN --mount=type=cache,target=/root/.bun/install/cache \
+    bun install --frozen-lockfile
+COPY tsconfig.json tsconfig.app.json tsconfig.server.json vite.config.ts index.html vite-env.d.ts ./
+COPY src/ src/
+RUN bunx vite build
+
+# ---- 3. release: hotove dist + server deps
+FROM base AS release
+COPY --from=deps /usr/src/app/node_modules node_modules
+COPY auth.ts main.ts package.json ./
+COPY static/ static/
+COPY --from=build /usr/src/app/dist dist/
+
+USER bun
+EXPOSE 8000/tcp
+ENTRYPOINT [ "bun", "run", "main.ts" ]
