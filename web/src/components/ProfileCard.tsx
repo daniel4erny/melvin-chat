@@ -114,7 +114,7 @@ export default function ProfileCard({
     }
   };
 
-  const banner = `linear-gradient(120deg, ${shown.avatarColor}, color-mix(in srgb, ${shown.avatarColor} 45%, #5865f2))`;
+  const banner = `linear-gradient(120deg, ${shown.avatarColor}, color-mix(in srgb, ${shown.avatarColor} 45%, var(--accent)))`;
 
   return (
     <>

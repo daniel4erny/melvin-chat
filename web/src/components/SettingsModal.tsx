@@ -10,8 +10,8 @@ import TimeoutModal from "./TimeoutModal";
 import { Icon, type IconName } from "./Icon";
 import { Avatar, Modal, Spinner } from "./ui";
 
-const ACCENTS = ["#5865f2", "#1abc9c", "#eb459e", "#f0b232", "#3ba55c", "#ed4245", "#00a8fc", "#a78bfa"];
-const COLOR_CHOICES = ["#5865f2", "#1abc9c", "#eb459e", "#f0b232", "#3ba55c", "#ed4245", "#00a8fc", "#a78bfa", "#94a3b8"];
+const ACCENTS = ["#6c5efc", "#8b5cf6", "#ec4899", "#f97316", "#10b981", "#06b6d4", "#ef4444", "#eab308"];
+const COLOR_CHOICES = ["#6c5efc", "#8b5cf6", "#ec4899", "#f97316", "#10b981", "#06b6d4", "#ef4444", "#eab308", "#94a3b8"];
 
 type Tab = "profile" | "appearance" | "chat" | "privacy" | "users" | "invites" | "system";
 
@@ -369,7 +369,7 @@ export default function SettingsModal({
     if (!window.confirm("Vrátit vzhled a chování chatu do výchozího nastavení?")) return;
     setSettings({
       theme: "dark",
-      accent: "#5865f2",
+      accent: "#6c5efc",
       density: "cozy",
       fontScale: 1,
       showErrors: true,

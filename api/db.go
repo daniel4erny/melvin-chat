@@ -38,7 +38,7 @@ type UserSettings struct {
 func DefaultSettings() UserSettings {
 	return UserSettings{
 		Theme:          "dark",
-		Accent:         "#5865f2",
+		Accent:         "#6c5efc",
 		Density:        "cozy",
 		FontScale:      1,
 		ShowErrors:     true,
@@ -351,7 +351,7 @@ func decodeSettings(raw string) UserSettings {
 		s.Presence = "everyone"
 	}
 	if s.Accent == "" {
-		s.Accent = "#5865f2"
+		s.Accent = "#6c5efc"
 	}
 	if s.FontScale < 0.7 || s.FontScale > 1.5 {
 		s.FontScale = 1

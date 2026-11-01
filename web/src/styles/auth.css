@@ -260,3 +260,27 @@
     border-radius: 14px;
   }
 }
+
+/* ---------- 2026 refresh ---------- */
+
+.authPage::before {
+  background: color-mix(in srgb, var(--accent) 48%, transparent);
+}
+
+.authPage::after {
+  background: color-mix(in srgb, #ff5fa2 32%, transparent);
+}
+
+.authCard {
+  border-radius: 26px;
+  background: color-mix(in srgb, var(--panel) 82%, transparent);
+}
+
+.brandMark {
+  background: linear-gradient(140deg, #8b7bff, color-mix(in srgb, var(--accent) 74%, #ff5fa2));
+  box-shadow: 0 14px 34px -10px color-mix(in srgb, var(--accent) 70%, transparent);
+}
+
+.authHead h1 {
+  font-weight: 700;
+}

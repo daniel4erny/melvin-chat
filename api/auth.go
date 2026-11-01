@@ -383,7 +383,7 @@ func sanitizeSettings(s *UserSettings) *UserSettings {
 		out.SoundVolume = 1
 	}
 	if !colorRe.MatchString(out.Accent) {
-		out.Accent = "#5865f2"
+		out.Accent = "#6c5efc"
 	}
 	if out.FontScale < 0.85 {
 		out.FontScale = 0.85
