@@ -257,14 +257,16 @@ func (a *App) serveFile(w http.ResponseWriter, r *http.Request, u User) {
 		writeErr(w, http.StatusNotFound, "Soubor neexistuje")
 		return
 	}
-	if channelID.Valid {
-		if _, member, _ := a.db.MemberRole(channelID.Int64, u.ID); !member {
+	if !u.Admin {
+		if channelID.Valid {
+			if _, member, _ := a.db.MemberRole(channelID.Int64, u.ID); !member {
+				writeErr(w, http.StatusForbidden, "K tomuto souboru nemáš přístup")
+				return
+			}
+		} else if att.UploaderID != u.ID {
 			writeErr(w, http.StatusForbidden, "K tomuto souboru nemáš přístup")
 			return
 		}
-	} else if att.UploaderID != u.ID {
-		writeErr(w, http.StatusForbidden, "K tomuto souboru nemáš přístup")
-		return
 	}
 
 	f, err := os.Open(a.uploadFilePath(id))

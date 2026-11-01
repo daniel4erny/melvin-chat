@@ -493,9 +493,16 @@ func (d *DB) ToggleReaction(messageID, userID int64, emoji string) (int64, []Rea
 }
 
 func (d *DB) SearchMessages(channelID int64, query string, viewerID int64) ([]Message, error) {
+	like := "%" + query + "%"
 	rows, err := d.sql.Query(
-		"SELECT id FROM messages WHERE channel_id = ? AND deleted = 0 AND text LIKE ? ORDER BY id DESC LIMIT 50",
-		channelID, "%"+query+"%",
+		`SELECT m.id FROM messages m
+		 JOIN users u ON u.id = m.user_id
+		 LEFT JOIN attachments a ON a.id = m.attachment_id
+		 WHERE m.channel_id = ? AND m.deleted = 0 AND (
+		   m.text LIKE ? OR u.display_name LIKE ? OR u.username LIKE ? OR a.name LIKE ?
+		 )
+		 ORDER BY m.id DESC LIMIT 50`,
+		channelID, like, like, like, like,
 	)
 	if err != nil {
 		return nil, err

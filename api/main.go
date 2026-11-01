@@ -114,6 +114,11 @@ func main() {
 	mux.HandleFunc("GET /api/invites/{code}", app.checkInvite)
 	mux.HandleFunc("DELETE /api/invites/{code}", app.admin(app.revokeInvite))
 
+	mux.HandleFunc("GET /api/admin/overview", app.admin(app.adminOverview))
+	mux.HandleFunc("GET /api/admin/files", app.admin(app.adminFiles))
+	mux.HandleFunc("GET /api/admin/tables", app.admin(app.adminTables))
+	mux.HandleFunc("GET /api/admin/table/{name}", app.admin(app.adminTableRows))
+
 	mux.HandleFunc("POST /api/dms", app.auth(app.createDM))
 	mux.HandleFunc("GET /api/channels", app.auth(app.listChannels))
 	mux.HandleFunc("POST /api/channels", app.auth(app.createChannel))

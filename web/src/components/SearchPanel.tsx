@@ -78,7 +78,9 @@ export default function SearchPanel({
 
       <div className="searchResults">
         {query.trim().length < 2 && (
-          <p className="searchHint">Napiš alespoň dva znaky. Hledá se v textu zpráv tohoto kanálu.</p>
+          <p className="searchHint">
+            Napiš alespoň dva znaky. Hledá se v textu zpráv, ve jménech autorů i v názvech souborů.
+          </p>
         )}
         {error && <p className="searchHint error">{error}</p>}
         {results && results.length === 0 && !loading && !error && (
