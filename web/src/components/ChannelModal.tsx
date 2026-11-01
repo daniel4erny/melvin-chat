@@ -140,7 +140,6 @@ export default function ChannelModal({
     <Modal
       open={open}
       onClose={onClose}
-      wide
       title={mode === "create" ? "Nový kanál" : `Upravit #${channel?.name ?? ""}`}
       subtitle={
         mode === "create"
@@ -149,11 +148,6 @@ export default function ChannelModal({
       }
       footer={
         <>
-          {mode === "edit" && isOwner && channel && (
-            <button className="btn danger ghost" onClick={() => void remove()} disabled={saving}>
-              <Icon name="trash" size={16} /> Smazat
-            </button>
-          )}
           <span className="spacer" />
           <button className="btn ghost" onClick={onClose}>
             Zrušit
@@ -280,6 +274,18 @@ export default function ChannelModal({
       )}
 
       {error && <div className="formError">{error}</div>}
+
+      {mode === "edit" && isOwner && channel && (
+        <div className="dangerZone">
+          <div>
+            <strong>Smazat kanál</strong>
+            <p>Zprávy, přílohy i hlasovky zmizí pro všechny. Tohle nejde vrátit.</p>
+          </div>
+          <button className="btn danger" onClick={() => void remove()} disabled={saving}>
+            <Icon name="trash" size={15} /> Smazat
+          </button>
+        </div>
+      )}
     </Modal>
   );
 }

@@ -5695,3 +5695,45 @@ body {
   flex-shrink: 0;
 }
 
+/* ---------- channel settings ---------- */
+
+.dangerZone {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, var(--danger) 28%, transparent);
+  background: var(--danger-soft);
+}
+
+.dangerZone strong {
+  display: block;
+  font-size: 0.82rem;
+  color: var(--danger);
+}
+
+.dangerZone p {
+  margin-top: 2px;
+  max-width: 40ch;
+  font-size: 0.74rem;
+  line-height: 1.4;
+  color: var(--muted);
+}
+
+.dangerZone .btn {
+  flex-shrink: 0;
+}
+
+@media (max-width: 560px) {
+  .dangerZone {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .dangerZone .btn {
+    width: 100%;
+  }
+}
+

@@ -530,6 +530,17 @@ input[type="color"] {
   color: var(--accent);
 }
 
+@media (max-width: 560px) {
+  .segmented {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+
+  .segmented > button {
+    padding: 10px 12px;
+  }
+}
+
 .compactSegments {
   margin-bottom: 10px;
 }
