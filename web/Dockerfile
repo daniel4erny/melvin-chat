@@ -2,9 +2,10 @@
 #
 # Bun's default x86_64 binary needs AVX2. On older CPUs (or VMs that do not
 # pass AVX2 through) it dies with SIGILL / exit code 132, which makes
-# `bun run build` fail inside the container. We therefore always replace the
-# bundled bun with the "baseline" build on amd64 and the standard build on
-# arm64, both at build time and at runtime.
+# `bun run build` fail inside the container. We try to replace the bundled
+# bun with the baseline build on amd64 (and standard on arm64). If the
+# download fails (e.g. transient GitHub error/rate limit), fall back to the
+# bun shipped in the image — fine on AVX2 hosts.
 ARG BUN_VERSION=1.4.4
 FROM oven/bun:${BUN_VERSION} AS base
 ARG BUN_VERSION
@@ -19,11 +20,16 @@ RUN set -eux; \
       aarch64) asset="bun-linux-aarch64.zip" ;; \
       *) echo "unsupported architecture: $(uname -m)" >&2; exit 1 ;; \
     esac; \
-    curl -fsSL -o /tmp/bun.zip \
-      "https://github.com/oven-sh/bun/releases/download/bun-v${BUN_VERSION}/${asset}"; \
-    unzip -q /tmp/bun.zip -d /tmp; \
-    install -m 0755 /tmp/bun-linux-*/bun /usr/local/bin/bun; \
-    rm -rf /tmp/bun*; \
+    url="https://github.com/oven-sh/bun/releases/download/bun-v${BUN_VERSION}/${asset}"; \
+    if curl -fsSL --retry 3 --retry-delay 2 -o /tmp/bun.zip "$url"; then \
+      unzip -q /tmp/bun.zip -d /tmp; \
+      install -m 0755 /tmp/bun-linux-*/bun /usr/local/bin/bun; \
+      rm -rf /tmp/bun*; \
+      echo "installed $asset"; \
+    else \
+      echo "warning: failed to download $url; using bun from base image"; \
+      rm -f /tmp/bun.zip; \
+    fi; \
     bun --version
 
 # ---- 1. deps ----
