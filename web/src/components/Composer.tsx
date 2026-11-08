@@ -42,6 +42,7 @@ export default function Composer({
   onCancelReply,
   onSend,
   onPoll,
+  slowmode = 0,
   timeoutMsLeft = 0,
   timeoutReason = "",
 }: {
@@ -55,6 +56,7 @@ export default function Composer({
   onCancelReply: () => void;
   onSend: (text: string, attachmentId?: string, replyTo?: number, stickerId?: string) => Promise<void>;
   onPoll: () => void;
+  slowmode?: number;
   timeoutMsLeft?: number;
   timeoutReason?: string;
 }) {
@@ -424,8 +426,18 @@ export default function Composer({
       setEmojiOpen(false);
       setStickerOpen(false);
     };
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setEmojiOpen(false);
+        setStickerOpen(false);
+      }
+    };
     document.addEventListener("mousedown", onDown);
-    return () => document.removeEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
   }, [emojiOpen, stickerOpen]);
 
   return (
@@ -523,6 +535,16 @@ export default function Composer({
               <span className="mentionHandle">@{member.username}</span>
             </button>
           ))}
+        </div>
+      )}
+
+      {slowmode > 0 && (
+        <div className="composerSlowmode">
+          <Icon name="clock" size={13} />
+          <span>
+            Zpomalení: jeden člověk může psát jednou za{" "}
+            {slowmode >= 60 ? `${Math.round(slowmode / 60)} min` : `${slowmode} s`}
+          </span>
         </div>
       )}
 

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
 import { toast } from "../toast";
-import type { User, UserProfileResponse } from "../types";
+import { PERM_MANAGE_MEMBERS, type User, type UserProfileResponse } from "../types";
 import { formatDateTime, formatLastSeen, plural, timeoutLabel } from "../utils";
 import BanModal from "./BanModal";
 import TimeoutModal from "./TimeoutModal";
@@ -40,7 +40,9 @@ export default function ProfileCard({
   const [banOpen, setBanOpen] = useState(false);
   const [timeoutOpen, setTimeoutOpen] = useState(false);
   const self = user.id === me.id;
-  const canModerate = me.admin && !self;
+  const isAdmin = me.admin && !self;
+  const canModerate =
+    !self && (me.admin || ((me.permissions ?? 0) & PERM_MANAGE_MEMBERS) !== 0);
 
   useEffect(() => {
     let cancelled = false;
@@ -134,7 +136,14 @@ export default function ProfileCard({
             />
             <div className="profileHeroText">
               <h3>
-                {shown.displayName}
+                <span className="profileName" style={shown.roleColor ? { color: shown.roleColor } : undefined}>
+                  {shown.displayName}
+                </span>
+                {shown.roleName && (
+                  <span className="roleTag" style={{ color: shown.roleColor }}>
+                    {shown.roleName}
+                  </span>
+                )}
                 {shown.admin && <span className="adminTag">admin</span>}
                 {timeoutActive && <span className="timeoutTag">timeout</span>}
                 {shown.banned && <span className="banTag">ban</span>}
@@ -165,7 +174,7 @@ export default function ProfileCard({
                 <p>{shown.timeoutReason || "Bez uvedeného důvodu"}</p>
                 <small>do {formatDateTime(shown.timeoutUntil!)}</small>
               </div>
-              {me.admin && (
+              {canModerate && (
                 <button className="btn tiny ghost" onClick={() => void clearTimeout()} disabled={saving}>
                   Zrušit
                 </button>
@@ -316,43 +325,48 @@ export default function ProfileCard({
                 <Icon name="settings" size={16} /> Upravit profil
               </button>
             ) : (
-              canModerate && (
+              (isAdmin || canModerate) && (
                 <>
-                  <button
-                    className={`btn${shown.admin ? " danger ghost" : " primary"}`}
-                    onClick={() => void toggleAdmin()}
-                    disabled={saving}
-                  >
-                    {saving ? (
-                      <Spinner size={16} />
-                    ) : (
-                      <Icon name={shown.admin ? "userMinus" : "userPlus"} size={16} />
-                    )}
-                    {shown.admin ? "Odebrat admina" : "Udělat adminem"}
-                  </button>
-                  <button
-                    className={`btn${timeoutActive ? "" : " danger ghost"}`}
-                    onClick={() => setTimeoutOpen(true)}
-                    disabled={saving || shown.admin}
-                    title={shown.admin ? "Adminovi nejde dát timeout" : "Dočasně umlčet"}
-                  >
-                    <Icon name="clock" size={16} />
-                    {timeoutActive ? "Změnit timeout" : "Timeout"}
-                  </button>
-                  {shown.banned ? (
-                    <button className="btn" onClick={() => void unban()} disabled={saving}>
-                      <Icon name="check" size={16} /> Odbanovat
-                    </button>
-                  ) : (
+                  {isAdmin && (
                     <button
-                      className="btn danger"
-                      onClick={() => setBanOpen(true)}
-                      disabled={saving || shown.admin}
-                      title={shown.admin ? "Admina nejde zabanovat" : "Zabanovat účet"}
+                      className={`btn${shown.admin ? " danger ghost" : " primary"}`}
+                      onClick={() => void toggleAdmin()}
+                      disabled={saving}
                     >
-                      <Icon name="ban" size={16} /> Zabanovat
+                      {saving ? (
+                        <Spinner size={16} />
+                      ) : (
+                        <Icon name={shown.admin ? "userMinus" : "userPlus"} size={16} />
+                      )}
+                      {shown.admin ? "Odebrat admina" : "Udělat adminem"}
                     </button>
                   )}
+                  {canModerate && (
+                    <button
+                      className={`btn${timeoutActive ? "" : " danger ghost"}`}
+                      onClick={() => setTimeoutOpen(true)}
+                      disabled={saving || shown.admin}
+                      title={shown.admin ? "Adminovi nejde dát timeout" : "Dočasně umlčet"}
+                    >
+                      <Icon name="clock" size={16} />
+                      {timeoutActive ? "Změnit timeout" : "Timeout"}
+                    </button>
+                  )}
+                  {isAdmin &&
+                    (shown.banned ? (
+                      <button className="btn" onClick={() => void unban()} disabled={saving}>
+                        <Icon name="check" size={16} /> Odbanovat
+                      </button>
+                    ) : (
+                      <button
+                        className="btn danger"
+                        onClick={() => setBanOpen(true)}
+                        disabled={saving || shown.admin}
+                        title={shown.admin ? "Admina nejde zabanovat" : "Zabanovat účet"}
+                      >
+                        <Icon name="ban" size={16} /> Zabanovat
+                      </button>
+                    ))}
                 </>
               )
             )}

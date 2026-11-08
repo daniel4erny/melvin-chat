@@ -138,6 +138,10 @@ func (a *App) userProfile(w http.ResponseWriter, r *http.Request, viewer User) {
 		writeErr(w, http.StatusInternalServerError, "Uživatele se nepodařilo načíst")
 		return
 	}
+	users := []User{target}
+	if err := a.db.hydrateUsers(users); err == nil {
+		target = users[0]
+	}
 	stats, err := a.db.UserStats(id, viewer.ID)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "Statistiky se nepodařilo načíst")

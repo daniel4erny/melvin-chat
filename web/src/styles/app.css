@@ -2306,3 +2306,1165 @@ input[type="range"] {
   background: var(--panel-3);
   border-color: var(--border-strong);
 }
+
+
+/* ============================================================
+   Mobile navigation, sheets and touch hardening
+   Keep this block last: the skin layers above override each
+   other, and these rules must win on phones.
+   ============================================================ */
+
+@media (max-width: 900px) {
+  /* Keep the top bar below the status bar / notch so every button is tappable. */
+  .chatHeader {
+    height: calc(54px + env(safe-area-inset-top, 0px));
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-left: max(10px, env(safe-area-inset-left, 0px));
+    padding-right: max(10px, env(safe-area-inset-right, 0px));
+  }
+
+  .sidebar {
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+
+  .sidebarBrand {
+    height: calc(56px + env(safe-area-inset-top, 0px));
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-left: max(14px, env(safe-area-inset-left, 0px));
+  }
+
+  .sidebarClose {
+    display: inline-flex;
+    width: 34px;
+    height: 34px;
+    margin-left: 2px;
+    color: var(--muted);
+  }
+
+  .headerActions {
+    gap: 2px;
+  }
+
+  .headerActions .iconBtn,
+  .iconBtn.mobileOnly {
+    width: 36px;
+    height: 36px;
+  }
+
+  /* Instant taps, no blue WebView flash. */
+  .chatHeader button,
+  .sidebar button,
+  .composer button,
+  .message button,
+  .channelItem {
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  /* Stop iOS/Android from zooming the whole app when a field gets focus. */
+  input,
+  textarea,
+  select {
+    font-size: 16px !important;
+  }
+
+  /* Blur is expensive on phones; keep the dim, drop the GPU cost. */
+  .modalBackdrop,
+  .sidebarScrim {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+
+/* Dialogs become bottom sheets on phones, like native apps. */
+@media (max-width: 720px) {
+  .modalBackdrop {
+    align-items: flex-end;
+    padding: 0;
+  }
+
+  .modalCard {
+    width: 100%;
+    max-width: none;
+    max-height: calc(100dvh - env(safe-area-inset-top, 0px) - 8px);
+    border-radius: 18px 18px 0 0;
+    border-bottom: 0;
+  }
+
+  .modalCard.modalBare {
+    width: 100%;
+    margin: 0;
+    border-radius: 18px 18px 0 0;
+  }
+
+  .modalCard:not(.modalBare)::before {
+    content: "";
+    flex: 0 0 auto;
+    width: 38px;
+    height: 4px;
+    margin: 8px auto 0;
+    border-radius: 999px;
+    background: var(--border-strong);
+    opacity: 0.7;
+  }
+
+  .modalHead {
+    padding: 12px 18px 6px;
+  }
+
+  .modalBody {
+    padding-bottom: calc(18px + env(safe-area-inset-bottom, 0px));
+    overscroll-behavior: contain;
+  }
+
+  .modalFoot {
+    padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+  }
+
+  /* Settings: readable single column with horizontally scrolling tabs. */
+  .settingsLayout {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    min-height: 0;
+  }
+
+  .settingsNav {
+    position: sticky;
+    top: 0;
+    z-index: 3;
+    flex: 0 0 auto;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px;
+    width: 100%;
+    height: auto;
+    overflow: visible;
+    padding: 0 0 8px;
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+    background: var(--panel);
+  }
+
+  .settingsNav button {
+    flex: 0 0 auto;
+    height: auto;
+    padding: 8px 12px;
+    border-radius: 999px;
+    font-size: 0.8rem;
+    white-space: nowrap;
+    color: var(--muted);
+  }
+
+  .settingsNav button.active {
+    background: var(--accent-soft);
+    color: var(--text-strong);
+  }
+
+  .settingsContent {
+    width: 100%;
+    min-width: 0;
+  }
+
+  /* Right-hand panels use the whole phone screen. */
+  .sidePanelBackdrop {
+    padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px)
+      env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px);
+  }
+
+  .sidePanel {
+    width: 100%;
+    height: 100%;
+    margin: 0;
+    border: 0;
+    border-radius: 0;
+  }
+
+  .sidePanelHead {
+    padding-top: max(14px, env(safe-area-inset-top, 0px));
+  }
+
+  .sidePanelFoot {
+    padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px));
+  }
+
+  .modalCloseFloat {
+    top: max(10px, env(safe-area-inset-top, 0px));
+  }
+}
+
+/* The last iconBtn skin above clears the background; put the floating close
+   button back so it stays visible over profile banners. */
+.modalCloseFloat {
+  background: rgba(0, 0, 0, 0.56);
+  color: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+}
+
+.modalCloseFloat:hover {
+  background: rgba(0, 0, 0, 0.76);
+  color: #fff;
+}
+
+@media (max-width: 900px) {
+  /* Message actions float above the bubble instead of squeezing its text. */
+  .messageActions {
+    position: absolute;
+    top: 2px;
+    right: 4px;
+    margin-left: 0;
+    padding: 2px;
+    background: var(--bg-2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    box-shadow: var(--shadow);
+    z-index: 4;
+  }
+
+  .message.actionsOpen .messageActions {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  .membersDrawer {
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+
+  .drawerHead {
+    padding-top: calc(18px + env(safe-area-inset-top, 0px));
+  }
+
+  .drawerScrim,
+  .membersDrawer,
+  .searchPanel,
+  .callDock {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+
+/* ---------- admin data browser (settings → Data) ---------- */
+
+.adminData {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+
+.dataStats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
+  gap: 8px;
+}
+
+.dataStat {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  padding: 9px 11px;
+  border-radius: 10px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+}
+
+.dataStat strong {
+  font-size: 0.98rem;
+  font-weight: 700;
+  line-height: 1.2;
+  color: var(--text-strong);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dataStat span {
+  font-size: 0.66rem;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dataBlock {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  min-width: 0;
+  padding: 11px;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--panel-2) 65%, transparent);
+  border: 1px solid var(--border);
+}
+
+.dataBlockHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.dataBlockHead h4 {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.84rem;
+  font-weight: 700;
+  color: var(--text-strong);
+  white-space: nowrap;
+}
+
+.dataBlockHead h4 svg {
+  color: var(--muted);
+}
+
+.dataTools {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.dataTools select {
+  max-width: 100%;
+  padding: 7px 9px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg-2);
+  color: var(--text);
+  font-size: 0.8rem;
+}
+
+.dataSearch {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 0 9px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg-2);
+  color: var(--muted);
+}
+
+.dataSearch input {
+  flex: 1;
+  min-width: 0;
+  width: 100%;
+  padding: 7px 0;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--text);
+  font-size: 0.8rem;
+}
+
+.dataFileList {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.dataFileRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 7px 8px;
+  border-radius: 8px;
+  background: var(--panel-2);
+  border: 1px solid transparent;
+}
+
+.dataFileRow:hover {
+  border-color: var(--border-strong);
+}
+
+.dataFileIcon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 27px;
+  height: 27px;
+  flex-shrink: 0;
+  border-radius: 7px;
+  background: var(--panel-3);
+  color: var(--muted);
+}
+
+.dataFileMain {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  flex: 1;
+}
+
+.dataFileMain strong {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text-strong);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dataFileMain span {
+  font-size: 0.66rem;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dataTableWrap {
+  max-width: 100%;
+  min-width: 0;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  -webkit-overflow-scrolling: touch;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--bg-2);
+}
+
+.dataTable {
+  width: max-content;
+  min-width: 100%;
+  border-collapse: collapse;
+  font-size: 0.72rem;
+}
+
+.dataTable th,
+.dataTable td {
+  padding: 7px 9px;
+  text-align: left;
+  white-space: nowrap;
+  border-bottom: 1px solid var(--border);
+  max-width: 240px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dataTable th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--panel-3);
+  color: var(--text-strong);
+  font-weight: 700;
+}
+
+.dataTable tr:last-child td {
+  border-bottom: 0;
+}
+
+.dataTable td {
+  color: var(--text);
+}
+
+.dataNull {
+  color: var(--muted);
+  font-style: italic;
+}
+
+.dataEmpty {
+  padding: 10px 4px;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.dataPager {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+
+.dataPager span {
+  margin-right: auto;
+}
+
+@media (max-width: 560px) {
+  .dataStats {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .dataBlockHead {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .dataTools,
+  .dataSearch {
+    width: 100%;
+  }
+
+  .dataTools select {
+    flex: 1;
+    min-width: 0;
+  }
+}
+
+/* ---------------- Discord-style categories ---------------- */
+
+.sidebarSectionActions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.categoryBlock {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 6px;
+  min-width: 0;
+}
+
+.categoryBlock:first-child {
+  margin-top: 0;
+}
+
+.categoryHead {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-height: 28px;
+  padding: 0 2px 0 4px;
+  color: var(--muted);
+}
+
+.categoryToggle {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex: 1;
+  min-width: 0;
+  min-height: 28px;
+  padding: 2px 4px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 0.66rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  text-align: left;
+}
+
+.categoryToggle:hover {
+  color: var(--text);
+}
+
+.categoryToggle span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.categoryToggle small {
+  margin-left: auto;
+  font-size: 0.62rem;
+  font-weight: 600;
+  opacity: 0.65;
+}
+
+.categoryToggleStatic {
+  cursor: default;
+}
+
+.categoryChevron {
+  flex-shrink: 0;
+  transition: transform 0.15s ease;
+}
+
+.categoryChevron.collapsed {
+  transform: rotate(-90deg);
+}
+
+.categoryAdd {
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  opacity: 0;
+}
+
+.categoryHead:hover .categoryAdd,
+.categoryAdd:focus-visible {
+  opacity: 1;
+}
+
+.categoryChannels {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.categoryEmpty {
+  margin: 2px 8px 6px;
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-style: italic;
+}
+
+.voiceChannel.active .channelIcon {
+  color: var(--success);
+}
+
+/* ---------------- direct messages ---------------- */
+
+.dmGroupIcon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 55%, #fff), var(--accent));
+  color: #fff;
+  box-shadow: 0 3px 10px color-mix(in srgb, var(--accent) 30%, transparent);
+}
+
+.newDM {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 0;
+}
+
+.newDMList {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  max-height: min(46vh, 360px);
+  overflow-y: auto;
+  padding-right: 2px;
+}
+
+.newDMList .memberRow.disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* ---------------- category manager ---------------- */
+
+.categoryManager {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.categoryManagerList {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.categoryManagerRow {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 44px;
+  padding: 5px 6px 5px 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--text-strong) 3%, transparent);
+}
+
+.categoryManagerIcon {
+  display: flex;
+  color: var(--accent);
+  flex-shrink: 0;
+}
+
+.categoryManagerRow strong {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.categoryManagerActions {
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  flex-shrink: 0;
+}
+
+.categoryManagerActions .iconBtn {
+  width: 30px;
+  height: 30px;
+  padding: 0;
+}
+
+.categoryManagerInput {
+  flex: 1;
+  min-width: 0;
+  padding: 7px 9px;
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text);
+}
+
+.categoryAddRow {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+}
+
+.categoryAddRow .inputWrap {
+  flex: 1;
+}
+
+.flipUp {
+  transform: rotate(180deg);
+}
+
+/* ---------------- voice room ---------------- */
+
+.voiceRoomBar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 8px 14px 0;
+  padding: 9px 12px;
+  border: 1px solid color-mix(in srgb, var(--success) 28%, var(--border));
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--success) 8%, var(--bg-3));
+}
+
+.voiceRoomIcon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--success) 16%, transparent);
+  color: var(--success);
+}
+
+.voiceRoomText {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+}
+
+.voiceRoomText strong {
+  font-size: 0.86rem;
+}
+
+.voiceRoomText span {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 0.75rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.composerSlowmode {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 16px 0;
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
+.composerSlowmode svg {
+  flex-shrink: 0;
+}
+
+.channelKindPicker {
+  align-items: stretch;
+}
+
+@media (max-width: 720px) {
+  .categoryAdd {
+    opacity: 1;
+  }
+
+  .categoryToggle {
+    min-height: 34px;
+    font-size: 0.68rem;
+  }
+
+  .categoryHead {
+    min-height: 34px;
+  }
+
+  .voiceRoomBar {
+    margin: 8px 10px 0;
+    padding: 8px 9px;
+    gap: 8px;
+  }
+
+  .voiceRoomText span {
+    white-space: normal;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+  }
+
+  .voiceRoomBar .btn {
+    flex-shrink: 0;
+  }
+
+  .categoryManagerRow {
+    min-height: 48px;
+  }
+
+  .categoryAddRow {
+    flex-direction: column;
+  }
+}
+
+/* ---------------- roles ---------------- */
+
+.roleTag {
+  display: inline-flex;
+  align-items: center;
+  max-width: 150px;
+  padding: 0 6px;
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  font-size: 0.62rem;
+  font-weight: 700;
+  line-height: 16px;
+  opacity: 0.9;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+
+.miniBadge.role {
+  max-width: 96px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  background: transparent;
+}
+
+.profileName {
+  font-weight: 800;
+}
+
+.rolesPanel {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.rolesIntro {
+  display: flex;
+  gap: 11px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--accent) 5%, transparent);
+}
+
+.rolesIntroIcon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  flex-shrink: 0;
+  border-radius: 10px;
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.rolesIntro strong {
+  display: block;
+  margin-bottom: 2px;
+}
+
+.rolesIntro p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.8rem;
+  line-height: 1.45;
+}
+
+.roleCreateGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr);
+  gap: 10px;
+}
+
+.colorRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  min-height: 38px;
+}
+
+.colorDot {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 2px solid transparent;
+  border-radius: 50%;
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--text-strong) 18%, transparent);
+  cursor: pointer;
+}
+
+.colorDot.active {
+  border-color: var(--bg);
+  box-shadow: 0 0 0 2px var(--text-strong);
+}
+
+.colorInput {
+  width: 32px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.permPicker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.permChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 30px;
+  padding: 3px 9px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.permChip svg {
+  opacity: 0;
+}
+
+.permChip.on {
+  border-color: color-mix(in srgb, var(--accent) 50%, var(--border));
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.permChip.on svg {
+  opacity: 1;
+}
+
+.roleCreateFoot {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+}
+
+.rolePreview {
+  font-weight: 800;
+  letter-spacing: -0.01em;
+}
+
+.roleList {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.roleRow {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 48px;
+  padding: 7px 8px 7px 11px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--text-strong) 2.5%, transparent);
+}
+
+.roleDot {
+  width: 12px;
+  height: 12px;
+  flex-shrink: 0;
+  border-radius: 50%;
+}
+
+.roleRowText {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+}
+
+.roleRowText strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.roleRowText small {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 0.72rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.roleEdit {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+  padding: 2px 0;
+}
+
+.roleNameInput {
+  width: 100%;
+  padding: 7px 9px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text);
+}
+
+.rolesMembersHead {
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.rolesSearch {
+  width: min(240px, 100%);
+}
+
+.roleMembers {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 420px;
+  overflow-y: auto;
+}
+
+.roleMemberRow {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 7px 6px;
+  border-radius: 9px;
+}
+
+.roleMemberRow:hover {
+  background: color-mix(in srgb, var(--text-strong) 4%, transparent);
+}
+
+.roleMemberInfo {
+  display: flex;
+  flex-direction: column;
+  min-width: 100px;
+  flex: 1;
+}
+
+.roleMemberInfo strong {
+  font-size: 0.86rem;
+}
+
+.roleMemberInfo small {
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
+.roleChips {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+  flex-wrap: wrap;
+  max-width: 58%;
+}
+
+.roleChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 26px;
+  padding: 2px 7px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.roleChip.on {
+  background: color-mix(in srgb, currentColor 12%, transparent);
+}
+
+.roleChip:disabled {
+  opacity: 0.6;
+}
+
+.roleChipDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+@media (max-width: 720px) {
+  .roleCreateGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .roleMemberRow {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .roleChips {
+    justify-content: flex-start;
+    max-width: 100%;
+    width: 100%;
+    padding-left: 41px;
+  }
+
+  .roleRow {
+    min-height: 54px;
+  }
+
+  .rolesSearch {
+    width: 100%;
+  }
+
+  .roleTag {
+    max-width: 110px;
+  }
+}

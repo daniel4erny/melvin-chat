@@ -59,7 +59,8 @@ export type IconName =
   | "headphones"
   | "phoneCall"
   | "sparkles"
-  | "sticker";
+  | "sticker"
+  | "folder";
 
 const paths: Record<IconName, ReactNode> = {
   hash: <><path d="M4 9h16M4 15h16M10 3 8 21M16 3l-2 18" /></>,
@@ -121,6 +122,7 @@ const paths: Record<IconName, ReactNode> = {
   headphones: <><path d="M4 14v-2a8 8 0 0 1 16 0v2" /><path d="M4 14a2 2 0 0 0-2 2v3a2 2 0 0 0 2 2h2v-7H4ZM20 14a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2h-2v-7h2Z" /></>,
   phoneCall: <><path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1 1 .4 1.9.7 2.8a2 2 0 0 1-.4 2.1L8.1 9.9a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.4c.9.3 1.8.6 2.8.7a2 2 0 0 1 1.7 2Z" /><path d="M15 5a5 5 0 0 1 5 5" /></>,
   sparkles: <><path d="m12 3 1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9L12 3Z" /><path d="M19 15l.9 2.1L22 18l-2.1.9L19 21l-.9-2.1L16 18l2.1-.9L19 15Z" /></>,
+  folder: <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z" />,
 };
 
 export function Icon({

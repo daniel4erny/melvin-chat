@@ -7,6 +7,7 @@ import { clearLogs, downloadLogs, getLogs, type LogEntry } from "../logs";
 import type { Invite, User, UserSettings, WSStatus } from "../types";
 import { formatDateTime, playPing, prepareAvatar, validColor } from "../utils";
 import AdminDataPanel from "./AdminDataPanel";
+import RolesPanel from "./RolesPanel";
 import BanModal from "./BanModal";
 import TimeoutModal from "./TimeoutModal";
 import { Icon, type IconName } from "./Icon";
@@ -15,7 +16,7 @@ import { Avatar, Modal, Spinner } from "./ui";
 const ACCENTS = ["#6c5efc", "#8b5cf6", "#ec4899", "#f97316", "#10b981", "#06b6d4", "#ef4444", "#eab308"];
 const COLOR_CHOICES = ["#6c5efc", "#8b5cf6", "#ec4899", "#f97316", "#10b981", "#06b6d4", "#ef4444", "#eab308", "#94a3b8"];
 
-type Tab = "profile" | "appearance" | "chat" | "privacy" | "users" | "invites" | "data" | "system";
+type Tab = "profile" | "appearance" | "chat" | "privacy" | "users" | "roles" | "invites" | "data" | "system";
 
 // Accept a bare domain the way people write it; the API requires a scheme.
 function normalizeWebsite(value: string): string {
@@ -30,6 +31,7 @@ const TABS: { id: Tab; label: string; icon: IconName; admin?: boolean }[] = [
   { id: "chat", label: "Chat", icon: "bell" },
   { id: "privacy", label: "Soukromí", icon: "shield" },
   { id: "users", label: "Uživatelé", icon: "users", admin: true },
+  { id: "roles", label: "Role", icon: "shield", admin: true },
   { id: "invites", label: "Pozvánky", icon: "link", admin: true },
   { id: "data", label: "Data", icon: "server", admin: true },
   { id: "system", label: "Systém", icon: "settings" },
@@ -407,7 +409,7 @@ export default function SettingsModal({
       title="Nastavení"
       subtitle="Vzhled, soukromí, chování chatu a diagnostika"
       footer={
-        tab === "users" || tab === "invites" || tab === "data" || tab === "system" ? (
+        tab === "users" || tab === "roles" || tab === "invites" || tab === "data" || tab === "system" ? (
           <button className="btn ghost" onClick={close}>
             Zavřít
           </button>
@@ -857,6 +859,8 @@ export default function SettingsModal({
               </div>
             </div>
           )}
+
+          {tab === "roles" && user.admin && <RolesPanel me={user} />}
 
           {tab === "users" && user.admin && (
             <div className="settingsSection">

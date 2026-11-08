@@ -56,13 +56,18 @@ import pathlib
 
 gradle = pathlib.Path("src-tauri/gen/android/app/build.gradle.kts")
 s = gradle.read_text()
+if "import java.util.Properties" not in s:
+    s = "import java.util.Properties\n" + s
+# The Gradle header imports the class, so the fully qualified name no longer
+# compiles (the `java` accessor shadows the package) - always shorten it.
+s = s.replace("java.util.Properties()", "Properties()")
 if "signingConfigs {" not in s:
     s = s.replace(
         "android {\n",
         '''android {
     signingConfigs {
         create("release") {
-            val props = java.util.Properties()
+            val props = Properties()
             val propsFile = rootProject.file("keystore.properties")
             if (propsFile.exists()) {
                 propsFile.inputStream().use { props.load(it) }
@@ -104,7 +109,7 @@ cd ..
 VERSION="$(grep -m1 '"version"' desktop/src-tauri/tauri.conf.json | sed -E 's/.*"version" *: *"([^"]+)".*/\1/')"
 rm -rf .releases/android
 mkdir -p .releases/android
-APK="$(find desktop/src-tauri/gen/android -path '*/outputs/apk/release/*.apk' | sort | head -1)"
+APK="$(find desktop/src-tauri/gen/android/app/build/outputs/apk -name '*-release.apk' | sort | head -1)"
 if [ -z "$APK" ]; then
   echo "No release APK produced" >&2
   exit 1

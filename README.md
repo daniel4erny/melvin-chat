@@ -8,16 +8,21 @@ kanály, hlasovky, hovory, ankety a soubory na vašem vlastním serveru.
 - **Účty** — klasické jméno + heslo (PBKDF2, 210 000 iterací), 90denní session.
   První zaregistrovaný účet je admin. Další účty vznikají jen přes jednorázové
   pozvánky, které admin vygeneruje v nastavení.
-- **Kanály** — veřejné (všichni, i nově příchozí) a soukromé (jen pozvaní).
-  Vlastník kanálu spravuje členy, téma a viditelnost.
+- **Kanály** — veřejné (všichni, i nově příchozí) a soukromé (jen pozvaní),
+  textové i hlasové. Kategorie (složky) se dají sbalit, přeskládat a přesouvat
+  do nich kanály. Vlastník kanálu spravuje členy, téma, viditelnost, typ a
+  zpomalení.
 - **Zprávy** — reakce, odpovědi, mazání, úprava vlastních zpráv, historie po
-  stránkách, nepřečtené zprávy, indikátor psaní.
+  stránkách, nepřečtené zprávy, indikátor psaní a volitelné zpomalení kanálu.
+- **Přímé zprávy** — jeden na jednoho i skupinové konverzace až pro 10 lidí,
+  včetně hovorů ve skupině.
 - **Profily a moderace** — vlastní stav (emoji + text), bio, barva, seznam členů
   s online stavem. Admin může udělit ban s důvodem a délkou (hodiny až trvale),
   ban okamžitě ukončí relace a zablokuje přihlášení i WebSocket.
 - **Hlasovky** — nahrání přímo v prohlížeči (MediaRecorder), přehrávání v chatu.
-- **Hovory** — skupinový WebRTC mesh hovor v kanálu, mikrofon, kamera, ztlumení,
-  zvonek pro ostatní členy.
+- **Hovory** — skupinový WebRTC mesh hovor v textovém i hlasovém kanálu,
+  mikrofon, kamera, sdílení obrazovky, ztlumení a zvonek pro ostatní členy.
+  Hlasový kanál se otevře jedním kliknutím a hned se připojíš.
 - **Ankety** — 2–10 možností, více odpovědí, anonymní, uzavření autorem.
 - **Emoji a stikery** — plný Unicode picker s českým hledáním („smich“,
   „pivo“), často používané nahoře a rychlé reakce. Stikery fungují jako na
@@ -178,7 +183,9 @@ V Tauri se na přihlašovací obrazovce zobrazí pole pro adresu serveru
 
 - `POST /api/auth/register`, `/login`, `/logout`, `GET /api/auth/me`
 - `PATCH /api/me`, `POST /api/me/password`, `GET /api/users`
+- `GET/POST /api/categories`, `PATCH/DELETE /api/categories/{id}`, `POST /api/categories/reorder`
 - `GET/POST /api/channels`, `GET/PATCH/DELETE /api/channels/{id}`
+- `POST /api/dms` (jeden nebo víc příjemců = skupinová zpráva)
 - `POST /api/channels/{id}/leave`, `/read`, `/polls`
 - `GET/POST /api/channels/{id}/messages`, `GET .../search`
 - `DELETE /api/messages/{id}`, `POST /api/messages/{id}/reactions`

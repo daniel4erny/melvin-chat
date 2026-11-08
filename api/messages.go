@@ -231,6 +231,9 @@ func (d *DB) hydrateMessages(rows []baseMessage, viewerID int64) ([]Message, err
 		}
 		messages = append(messages, m)
 	}
+	if err := d.hydrateMessageRoles(messages); err != nil {
+		return nil, err
+	}
 	return messages, nil
 }
 
@@ -442,15 +445,17 @@ func (d *DB) UpdateMessage(id, userID int64, text string) (Message, error) {
 	return d.GetMessage(id, userID)
 }
 
-func (d *DB) DeleteMessage(id, userID int64, isAdmin bool) (int64, *string, error) {
-	var channelID, author int64
+func (d *DB) DeleteMessage(id, userID int64, canModerate bool) (int64, *string, error) {
+	var channelID, author, ownerID int64
 	var attachmentID sql.NullString
-	err := d.sql.QueryRow("SELECT channel_id, user_id, attachment_id FROM messages WHERE id = ? AND deleted = 0", id).
-		Scan(&channelID, &author, &attachmentID)
+	err := d.sql.QueryRow(
+		"SELECT m.channel_id, m.user_id, c.owner_id, m.attachment_id FROM messages m JOIN channels c ON c.id = m.channel_id WHERE m.id = ? AND m.deleted = 0",
+		id,
+	).Scan(&channelID, &author, &ownerID, &attachmentID)
 	if err != nil {
 		return 0, nil, errNotFound
 	}
-	if author != userID && !isAdmin {
+	if author != userID && !canModerate && ownerID != userID {
 		return 0, nil, errors.New("Tuhle zprávu nemůžeš smazat")
 	}
 	if _, err := d.sql.Exec("UPDATE messages SET deleted = 1, text = '' WHERE id = ?", id); err != nil {
@@ -617,6 +622,18 @@ func (a *App) sendMessage(w http.ResponseWriter, r *http.Request, u User) {
 		timeoutBlocked(w)
 		return
 	}
+	if ch, err := a.db.ChannelByID(channelID, u.ID); err == nil && ch.Slowmode > 0 && !a.can(u, PermManageChannels) && ch.OwnerID != u.ID {
+		var last int64
+		_ = a.db.sql.QueryRow(
+			"SELECT COALESCE(MAX(created_at), 0) FROM messages WHERE channel_id = ? AND user_id = ? AND deleted = 0",
+			channelID, u.ID,
+		).Scan(&last)
+		if wait := int64(ch.Slowmode)*1000 - (nowMS() - last); last > 0 && wait > 0 {
+			seconds := (wait + 999) / 1000
+			writeErr(w, http.StatusTooManyRequests, fmt.Sprintf("Zpomalení kanálu: zkus to za %d s", seconds))
+			return
+		}
+	}
 	var in struct {
 		Text         string  `json:"text"`
 		AttachmentID *string `json:"attachmentId"`
@@ -698,7 +715,7 @@ func (a *App) deleteMessage(w http.ResponseWriter, r *http.Request, u User) {
 		writeErr(w, http.StatusBadRequest, "Neplatná zpráva")
 		return
 	}
-	channelID, attachmentID, err := a.db.DeleteMessage(id, u.ID, u.Admin)
+	channelID, attachmentID, err := a.db.DeleteMessage(id, u.ID, u.Admin || a.can(u, PermManageMessages))
 	if err != nil {
 		writeErr(w, http.StatusForbidden, err.Error())
 		return
@@ -845,8 +862,8 @@ func (a *App) setPinned(w http.ResponseWriter, r *http.Request, u User, pinned b
 		writeErr(w, http.StatusForbidden, "Do tohoto kanálu nemáš přístup")
 		return
 	}
-	if role != "owner" && !u.Admin {
-		writeErr(w, http.StatusForbidden, "Připínat zprávy může jen vlastník kanálu nebo admin")
+	if role != "owner" && !a.can(u, PermManageMessages) {
+		writeErr(w, http.StatusForbidden, "Připínat zprávy může jen vlastník kanálu nebo role se správou zpráv")
 		return
 	}
 	if err := a.db.SetMessagePinned(id, pinned); err != nil {

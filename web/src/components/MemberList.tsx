@@ -40,11 +40,16 @@ function MemberRow({
       />
       <span className="memberRowInfo">
         <span className="memberRowTop">
-          <strong style={{ color: member.avatarColor }}>
+          <strong style={{ color: member.roleColor || member.avatarColor }}>
             {member.displayName}
             {member.id === me.id && <span className="selfMark">ty</span>}
           </strong>
           {member.role === "owner" && <span className="roleCrown" title="Vlastník kanálu">★</span>}
+          {member.roleName && (
+            <span className="miniBadge role" style={{ color: member.roleColor, borderColor: member.roleColor }}>
+              {member.roleName}
+            </span>
+          )}
           {member.admin && <span className="miniBadge admin" title="Admin">ADMIN</span>}
           {timeoutActive && (
             <span className="miniBadge timeout" title={member.timeoutReason || "Timeout"}>

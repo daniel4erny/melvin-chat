@@ -88,7 +88,7 @@ func (a *App) initUpload(w http.ResponseWriter, r *http.Request, u User) {
 		mimeType = "application/octet-stream"
 	}
 	if kind == "sticker" && !strings.HasPrefix(mimeType, "image/") {
-		writeErr(w, http.StatusBadRequest, "Stiker musí být obrázek (PNG, JPEG nebo WebP)")
+		writeErr(w, http.StatusBadRequest, "Stiker musí být obrázek")
 		return
 	}
 	if kind == "sticker" && in.Size > maxStickerBytes {

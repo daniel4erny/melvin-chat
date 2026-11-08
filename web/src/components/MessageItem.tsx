@@ -464,9 +464,23 @@ export default function MessageItem({
       <div className="messageMain">
         {!grouped && (
           <div className="messageHead">
-            <button type="button" className="messageAuthor" onClick={() => onProfile?.(message.user)}>
+            <button
+              type="button"
+              className="messageAuthor"
+              onClick={() => onProfile?.(message.user)}
+              style={message.user.roleColor ? { color: message.user.roleColor } : undefined}
+            >
               {message.user.displayName}
             </button>
+            {message.user.roleName && (
+              <span
+                className="roleTag"
+                title={`Role: ${message.user.roleName}`}
+                style={{ color: message.user.roleColor }}
+              >
+                {message.user.roleName}
+              </span>
+            )}
             {message.user.admin && <span className="adminTag">admin</span>}
             {message.user.statusEmoji && (
               <span
@@ -496,7 +510,9 @@ export default function MessageItem({
         {replyMessage && (
           <button className="replyQuote" onClick={() => jumpTo(replyMessage.id)}>
             <Icon name="reply" size={12} />
-            <strong>{replyMessage.user.displayName}</strong>
+            <strong style={replyMessage.user.roleColor ? { color: replyMessage.user.roleColor } : undefined}>
+              {replyMessage.user.displayName}
+            </strong>
             <span>
               {replyMessage.text ||
                 (replyMessage.sticker ? "stiker" : replyMessage.attachment?.name || "zpráva")}

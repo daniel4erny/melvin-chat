@@ -75,6 +75,10 @@ type User struct {
 	TimeoutReason string       `json:"timeoutReason"`
 	Settings      UserSettings `json:"settings"`
 	CreatedAt     int64        `json:"createdAt"`
+	RoleColor     string       `json:"roleColor,omitempty"`
+	RoleName      string       `json:"roleName,omitempty"`
+	RoleIDs       []int64      `json:"roleIds,omitempty"`
+	Permissions   int          `json:"permissions"`
 }
 
 // TimeoutActive reports whether the account is temporarily muted.
@@ -142,6 +146,22 @@ CREATE TABLE IF NOT EXISTS sessions (
 );
 CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
 
+CREATE TABLE IF NOT EXISTS roles (
+	id          INTEGER PRIMARY KEY AUTOINCREMENT,
+	name        TEXT NOT NULL UNIQUE COLLATE NOCASE,
+	color       TEXT NOT NULL DEFAULT '#99aab5',
+	position    INTEGER NOT NULL DEFAULT 0,
+	permissions INTEGER NOT NULL DEFAULT 0,
+	created_at  INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS user_roles (
+	user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+	role_id INTEGER NOT NULL REFERENCES roles(id) ON DELETE CASCADE,
+	PRIMARY KEY (user_id, role_id)
+);
+CREATE INDEX IF NOT EXISTS idx_user_roles_role ON user_roles(role_id);
+
 CREATE TABLE IF NOT EXISTS invites (
 	code       TEXT PRIMARY KEY,
 	created_by INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -154,13 +174,25 @@ CREATE TABLE IF NOT EXISTS invites (
 );
 CREATE INDEX IF NOT EXISTS idx_invites_created ON invites(created_at);
 
-CREATE TABLE IF NOT EXISTS channels (
+CREATE TABLE IF NOT EXISTS channel_categories (
 	id         INTEGER PRIMARY KEY AUTOINCREMENT,
 	name       TEXT NOT NULL,
-	topic      TEXT NOT NULL DEFAULT '',
-	visibility TEXT NOT NULL DEFAULT 'public',
-	owner_id   INTEGER NOT NULL REFERENCES users(id),
+	position   INTEGER NOT NULL DEFAULT 0,
+	created_by INTEGER NOT NULL DEFAULT 0,
 	created_at INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS channels (
+	id          INTEGER PRIMARY KEY AUTOINCREMENT,
+	name        TEXT NOT NULL,
+	topic       TEXT NOT NULL DEFAULT '',
+	visibility  TEXT NOT NULL DEFAULT 'public',
+	owner_id    INTEGER NOT NULL REFERENCES users(id),
+	category_id INTEGER,
+	kind        TEXT NOT NULL DEFAULT 'text',
+	position    INTEGER NOT NULL DEFAULT 0,
+	slowmode    INTEGER NOT NULL DEFAULT 0,
+	created_at  INTEGER NOT NULL
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_channels_direct_name ON channels(name) WHERE visibility = 'direct';
@@ -292,6 +324,15 @@ func openDB(path string) (*DB, error) {
 		"last_seen":      "INTEGER NOT NULL DEFAULT 0",
 		"timeout_until":  "INTEGER",
 		"timeout_reason": "TEXT NOT NULL DEFAULT ''",
+	}); err != nil {
+		conn.Close()
+		return nil, err
+	}
+	if err := ensureColumns(conn, "channels", map[string]string{
+		"category_id": "INTEGER",
+		"kind":        "TEXT NOT NULL DEFAULT 'text'",
+		"position":    "INTEGER NOT NULL DEFAULT 0",
+		"slowmode":    "INTEGER NOT NULL DEFAULT 0",
 	}); err != nil {
 		conn.Close()
 		return nil, err

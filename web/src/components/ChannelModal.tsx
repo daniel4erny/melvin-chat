@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../api";
-import type { Channel, ChannelMember, User } from "../types";
+import { PERM_MANAGE_CHANNELS, type Channel, type ChannelCategory, type ChannelMember, type User } from "../types";
 import { toast } from "../toast";
 import { Icon } from "./Icon";
 import { Avatar, Modal, Spinner } from "./ui";
@@ -10,6 +10,8 @@ export default function ChannelModal({
   mode,
   channel,
   me,
+  categories = [],
+  initialCategoryId = 0,
   onClose,
   onSaved,
 }: {
@@ -17,12 +19,17 @@ export default function ChannelModal({
   mode: "create" | "edit";
   channel: Channel | null;
   me: User;
+  categories?: ChannelCategory[];
+  initialCategoryId?: number;
   onClose: () => void;
   onSaved: (channel: Channel | null) => void;
 }) {
   const [name, setName] = useState("");
   const [topic, setTopic] = useState("");
   const [visibility, setVisibility] = useState<"public" | "private">("public");
+  const [kind, setKind] = useState<"text" | "voice">("text");
+  const [categoryId, setCategoryId] = useState(0);
+  const [slowmode, setSlowmode] = useState(0);
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [users, setUsers] = useState<User[]>([]);
   const [search, setSearch] = useState("");
@@ -40,11 +47,17 @@ export default function ChannelModal({
       setName(channel.name);
       setTopic(channel.topic);
       setVisibility(channel.visibility === "private" ? "private" : "public");
+      setKind(channel.kind === "voice" ? "voice" : "text");
+      setCategoryId(channel.categoryId || 0);
+      setSlowmode(channel.slowmode || 0);
       setSelected(new Set());
     } else {
       setName("");
       setTopic("");
       setVisibility("public");
+      setKind("text");
+      setCategoryId(initialCategoryId);
+      setSlowmode(0);
       setSelected(new Set());
     }
     setLoadingMembers(true);
@@ -63,7 +76,7 @@ export default function ChannelModal({
       })
       .catch((err) => setError(err instanceof Error ? err.message : "Nepodařilo se načíst uživatele"))
       .finally(() => setLoadingMembers(false));
-  }, [open, mode, editingId]);
+  }, [open, mode, editingId, initialCategoryId]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -95,6 +108,9 @@ export default function ChannelModal({
         name: clean,
         topic: topic.trim(),
         visibility,
+        kind,
+        categoryId,
+        slowmode,
         memberIds: [...selected],
       };
       if (mode === "create") {
@@ -134,7 +150,8 @@ export default function ChannelModal({
     }
   };
 
-  const isOwner = channel?.ownerId === me.id || me.admin;
+  const isOwner =
+    channel?.ownerId === me.id || me.admin || ((me.permissions ?? 0) & PERM_MANAGE_CHANNELS) !== 0;
 
   return (
     <Modal
@@ -163,11 +180,11 @@ export default function ChannelModal({
         <label className="field">
           <span>Název</span>
           <div className="inputWrap">
-            <Icon name="hash" size={16} />
+            <Icon name={kind === "voice" ? "volume" : "hash"} size={16} />
             <input
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="třeba_partaci"
+              placeholder={kind === "voice" ? "třeba_hovor" : "třeba_partaci"}
               maxLength={40}
               autoFocus
             />
@@ -182,6 +199,65 @@ export default function ChannelModal({
             maxLength={160}
           />
         </label>
+      </div>
+
+      <div className="field">
+        <span>Typ kanálu</span>
+        <div className="segmented channelKindPicker">
+          <button
+            type="button"
+            className={kind === "text" ? "active" : ""}
+            onClick={() => setKind("text")}
+          >
+            <Icon name="hash" size={16} />
+            <span>
+              <strong>Textový</strong>
+              <small>Zprávy, soubory, ankety</small>
+            </span>
+          </button>
+          <button
+            type="button"
+            className={kind === "voice" ? "active" : ""}
+            onClick={() => setKind("voice")}
+          >
+            <Icon name="volume" size={16} />
+            <span>
+              <strong>Hlasový</strong>
+              <small>Připojíš se jedním klikem</small>
+            </span>
+          </button>
+        </div>
+      </div>
+
+      <div className="formGrid">
+        <label className="field">
+          <span>Kategorie</span>
+          <select value={categoryId} onChange={(e) => setCategoryId(Number(e.target.value))}>
+            <option value={0}>Bez kategorie</option>
+            {categories.map((category) => (
+              <option key={category.id} value={category.id}>
+                {category.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        {kind === "text" && (
+          <label className="field">
+            <span>Zpomalení</span>
+            <select value={slowmode} onChange={(e) => setSlowmode(Number(e.target.value))}>
+              <option value={0}>Vypnuto</option>
+              <option value={5}>5 sekund</option>
+              <option value={10}>10 sekund</option>
+              <option value={30}>30 sekund</option>
+              <option value={60}>1 minuta</option>
+              <option value={300}>5 minut</option>
+              <option value={600}>10 minut</option>
+              <option value={1800}>30 minut</option>
+              <option value={3600}>1 hodina</option>
+            </select>
+            <small>Jak často smí jeden člověk napsat.</small>
+          </label>
+        )}
       </div>
 
       <div className="field">
@@ -270,6 +346,7 @@ export default function ChannelModal({
         <p className="hintBox">
           <Icon name="info" size={15} /> Do veřejného kanálu se automaticky přidají všichni uživatelé, i ti,
           kteří přijdou později.
+          {kind === "voice" && " Hlasový kanál otevřeš kliknutím a hned se připojíš k hovoru."}
         </p>
       )}
 

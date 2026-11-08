@@ -117,6 +117,7 @@ func (a *App) auth(h authedHandler) http.HandlerFunc {
 			writeErr(w, http.StatusForbidden, "Účet je zabanovaný")
 			return
 		}
+		u = a.hydrateSessionUser(u)
 		h(w, r, u)
 	}
 }
@@ -131,7 +132,30 @@ func (a *App) admin(h authedHandler) http.HandlerFunc {
 	})
 }
 
+// moderator allows admins and members whose role grants timeout management.
+func (a *App) moderator(h authedHandler) http.HandlerFunc {
+	return a.auth(func(w http.ResponseWriter, r *http.Request, u User) {
+		if !a.can(u, PermManageMembers) {
+			writeErr(w, http.StatusForbidden, "Tohle může jen moderátor")
+			return
+		}
+		h(w, r, u)
+	})
+}
+
+// hydrateSessionUser gives the session payload its role colour and permission
+// bits, so the client can show role-gated controls without another request.
+func (a *App) hydrateSessionUser(u User) User {
+	users := []User{u}
+	if err := a.db.hydrateUsers(users); err == nil {
+		u = users[0]
+	}
+	u.Permissions = a.permissions(u)
+	return u
+}
+
 func (a *App) issueSession(w http.ResponseWriter, u User) {
+	u = a.hydrateSessionUser(u)
 	token, tokenHash, err := randomToken()
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "Chyba serveru")
@@ -225,7 +249,7 @@ func (a *App) register(w http.ResponseWriter, r *http.Request) {
 	}
 	if u.Admin {
 		// First account on a fresh server gets a public home channel.
-		if ch, err := a.db.CreateChannel("general", "Hlavní kanál – tady to začíná", "public", u.ID, nil); err == nil {
+		if ch, err := a.db.CreateChannel("general", "Hlavní kanál – tady to začíná", "public", "text", 0, 0, u.ID, nil); err == nil {
 			a.notifyChannelsChanged(ch.ID)
 		}
 	}
@@ -430,6 +454,10 @@ func (a *App) listUsers(w http.ResponseWriter, r *http.Request, _ User) {
 		writeErr(w, http.StatusInternalServerError, "Nepodařilo se načíst uživatele")
 		return
 	}
+	if err := a.db.hydrateUsers(users); err != nil {
+		writeErr(w, http.StatusInternalServerError, "Role se nepodařilo načíst")
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]any{"users": users})
 }
 
@@ -443,6 +471,10 @@ func (a *App) getUser(w http.ResponseWriter, r *http.Request, _ User) {
 	if err != nil {
 		writeErr(w, http.StatusNotFound, "Uživatel neexistuje")
 		return
+	}
+	users := []User{u}
+	if err := a.db.hydrateUsers(users); err == nil {
+		u = users[0]
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"user": u})
 }

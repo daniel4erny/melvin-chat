@@ -36,7 +36,24 @@ export type User = {
   timeoutReason: string;
   settings: UserSettings;
   createdAt: number;
+  roleColor?: string;
+  roleName?: string;
+  roleIds?: number[];
+  permissions?: number;
 };
+
+export type Role = {
+  id: number;
+  name: string;
+  color: string;
+  position: number;
+  permissions: number;
+  createdAt: number;
+};
+
+export const PERM_MANAGE_CHANNELS = 1;
+export const PERM_MANAGE_MESSAGES = 2;
+export const PERM_MANAGE_MEMBERS = 4;
 
 export type AttachmentKind = "file" | "image" | "video" | "audio" | "voice" | "sticker";
 
@@ -103,6 +120,13 @@ export type MessagePreview = {
   fileName: string;
 };
 
+export type ChannelCategory = {
+  id: number;
+  name: string;
+  position: number;
+  createdBy: number;
+};
+
 export type Channel = {
   id: number;
   name: string;
@@ -110,11 +134,16 @@ export type Channel = {
   visibility: "public" | "private" | "direct";
   ownerId: number;
   createdAt: number;
+  categoryId: number;
+  kind: "text" | "voice";
+  slowmode: number;
   role: "owner" | "member";
   memberCount: number;
   unread: number;
   dm?: boolean;
+  group?: boolean;
   peer?: User;
+  peers?: User[];
   lastMessage?: MessagePreview;
 };
 
