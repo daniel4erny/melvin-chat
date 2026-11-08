@@ -37,7 +37,7 @@ type adminFile struct {
 
 func (a *App) adminOverview(w http.ResponseWriter, r *http.Request, u User) {
 	counts := map[string]int64{}
-	for _, table := range []string{"users", "channels", "messages", "attachments", "uploads", "reactions", "polls", "sessions", "invites"} {
+	for _, table := range []string{"users", "channels", "messages", "attachments", "uploads", "reactions", "polls", "stickers", "sessions", "invites"} {
 		var n int64
 		if err := a.db.sql.QueryRow(fmt.Sprintf(`SELECT COUNT(*) FROM "%s"`, table)).Scan(&n); err == nil {
 			counts[table] = n

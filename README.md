@@ -19,6 +19,11 @@ kanály, hlasovky, hovory, ankety a soubory na vašem vlastním serveru.
 - **Hovory** — skupinový WebRTC mesh hovor v kanálu, mikrofon, kamera, ztlumení,
   zvonek pro ostatní členy.
 - **Ankety** — 2–10 možností, více odpovědí, anonymní, uzavření autorem.
+- **Emoji a stikery** — plný Unicode picker s českým hledáním („smich“,
+  „pivo“), často používané nahoře a rychlé reakce. Stikery fungují jako na
+  WhatsAppu: základní balíček 28 kusů pro všechny, vlastní čtvercové PNG
+  (automaticky zmenšené na 512 px) a mazání z knihovny. Už poslané stikery
+  zůstávají v historii viditelné.
 - **Přílohy** — fotky, videa, audio i libovolné soubory do **500 MB**
   (konfigurovatelné). Nahrávání po 4MB chuncích s možností pokračovat,
   streamované stahování s podporou HTTP Range.
@@ -27,6 +32,10 @@ kanály, hlasovky, hovory, ankety a soubory na vašem vlastním serveru.
   statusu, zobrazení chyb a log chyb ke stažení.
 - **Aplikace** — web/PWA, Windows, Linux, macOS, Android a iOS přes Tauri v2
   (jeden React frontend).
+- **Notifikace** — v prohlížeči přes Notification API, v nativních aplikacích
+  přes Tauri plugin (Android i desktop). Android vyžaduje povolení
+  oznámení při prvním přihlášení. Oznámení chodí, dokud aplikace běží nebo
+  je v pozadí; push při úplně zabitém procesu by potřeboval FCM backend.
 
 ## Rychlý start (Docker)
 

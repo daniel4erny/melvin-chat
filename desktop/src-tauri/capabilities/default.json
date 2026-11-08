@@ -3,5 +3,5 @@
   "identifier": "default",
   "description": "Default permissions for the Melvin app window",
   "windows": ["main"],
-  "permissions": ["core:default"]
+  "permissions": ["core:default", "notification:default"]
 }

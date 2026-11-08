@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { api, fetchConfig } from "../api";
+import { api, fetchConfig, isTauri } from "../api";
 import { useAuth } from "../auth";
 import { playCallTone, playPing, startRinging } from "../utils";
 import { logEvent } from "../logs";
 import { socket, type SocketEvent } from "../ws";
 import { toast } from "../toast";
+import { showNotification, requestNotificationPermission } from "../notify";
 import type {
   AppConfig,
   CallPeer,
@@ -48,6 +49,7 @@ function previewLabel(channel: Channel): string {
   if (last.kind === "image") return `${last.displayName}: fotka`;
   if (last.kind === "video") return `${last.displayName}: video`;
   if (last.kind === "audio") return `${last.displayName}: audio`;
+  if (last.kind === "sticker") return `${last.displayName}: ${last.fileName || "stiker"}`;
   if (last.fileName) return `${last.displayName}: ${last.fileName}`;
   return `${last.displayName}: zpráva`;
 }
@@ -59,17 +61,11 @@ function channelTitle(channel?: Channel | null): string {
 }
 
 function notifyMessage(message: Message, channel?: Channel) {
-  if (!("Notification" in window) || Notification.permission !== "granted") return;
-  try {
-    const body = message.text || (message.attachment ? `Příloha: ${message.attachment.name}` : "Nová zpráva");
-    const note = new Notification(`${channel?.visibility === "direct" ? "" : "#"}${channelTitle(channel) || "kanál"} · ${message.user.displayName}`, {
-      body: body.slice(0, 160),
-      tag: `melvin-${message.channelId}`,
-    });
-    note.onclick = () => window.focus();
-  } catch {
-    // notifications unsupported
-  }
+  const body =
+    message.text ||
+    (message.sticker ? "Poslal stiker" : message.attachment ? `Příloha: ${message.attachment.name}` : "Nová zpráva");
+  const title = `${channel?.visibility === "direct" ? "" : "#"}${channelTitle(channel) || "kanál"} · ${message.user.displayName}`;
+  void showNotification(title, body);
 }
 
 export default function Chat() {
@@ -128,6 +124,16 @@ export default function Chat() {
       .then(setConfig)
       .catch((err) => logEvent("warn", "Nepodařilo se načíst config", err));
   }, []);
+
+  // Native shells (Android/desktop) ask for the notification permission once,
+  // right after the first sign-in, so alerts work without digging in settings.
+  useEffect(() => {
+    if (!isTauri() || !me.settings.notifications) return;
+    const key = "melvin.nativeNotificationAsked";
+    if (localStorage.getItem(key)) return;
+    localStorage.setItem(key, "1");
+    void requestNotificationPermission();
+  }, [me.settings.notifications]);
 
   useEffect(() => {
     const media = window.matchMedia("(max-width: 1100px)");
@@ -365,13 +371,13 @@ export default function Chat() {
   );
 
   const sendMessage = useCallback(
-    async (text: string, attachmentId?: string, replyToId?: number) => {
+    async (text: string, attachmentId?: string, replyToId?: number, stickerId?: string) => {
       const id = activeRef.current;
       if (!id) return;
       try {
         const res = await api<{ message: Message }>(`/api/channels/${id}/messages`, {
           method: "POST",
-          body: { text, attachmentId, replyTo: replyToId },
+          body: { text, attachmentId, replyTo: replyToId, stickerId },
         });
         addMessage(res.message);
         markRead(id, res.message.id);
@@ -525,8 +531,8 @@ export default function Chat() {
                     text: message.text,
                     createdAt: message.createdAt,
                     displayName: message.user.displayName,
-                    kind: message.attachment?.kind ?? "",
-                    fileName: message.attachment?.name ?? "",
+                    kind: message.sticker ? "sticker" : message.attachment?.kind ?? "",
+                    fileName: message.sticker?.emoji || message.sticker?.name || message.attachment?.name || "",
                   },
                   unread:
                     channel.id === activeRef.current && !document.hidden

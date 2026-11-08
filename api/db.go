@@ -210,6 +210,7 @@ CREATE TABLE IF NOT EXISTS messages (
 	attachment_id TEXT,
 	poll_id       INTEGER,
 	reply_to      INTEGER,
+	sticker_id    TEXT,
 	created_at    INTEGER NOT NULL,
 	edited_at     INTEGER,
 	deleted       INTEGER NOT NULL DEFAULT 0,
@@ -217,6 +218,18 @@ CREATE TABLE IF NOT EXISTS messages (
 );
 CREATE INDEX IF NOT EXISTS idx_messages_channel ON messages(channel_id, id);
 CREATE INDEX IF NOT EXISTS idx_messages_user ON messages(user_id);
+
+CREATE TABLE IF NOT EXISTS stickers (
+	id            TEXT PRIMARY KEY,
+	user_id       INTEGER NOT NULL DEFAULT 0,
+	name          TEXT NOT NULL DEFAULT '',
+	emoji         TEXT NOT NULL DEFAULT '',
+	attachment_id TEXT,
+	position      INTEGER NOT NULL DEFAULT 0,
+	hidden        INTEGER NOT NULL DEFAULT 0,
+	created_at    INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_stickers_user ON stickers(user_id, position);
 
 CREATE TABLE IF NOT EXISTS reactions (
 	message_id INTEGER NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
@@ -284,7 +297,18 @@ func openDB(path string) (*DB, error) {
 		return nil, err
 	}
 	if err := ensureColumns(conn, "messages", map[string]string{
-		"pinned": "INTEGER NOT NULL DEFAULT 0",
+		"pinned":     "INTEGER NOT NULL DEFAULT 0",
+		"sticker_id": "TEXT",
+	}); err != nil {
+		conn.Close()
+		return nil, err
+	}
+	if err := seedBuiltinStickers(conn); err != nil {
+		conn.Close()
+		return nil, err
+	}
+	if err := ensureColumns(conn, "stickers", map[string]string{
+		"hidden": "INTEGER NOT NULL DEFAULT 0",
 	}); err != nil {
 		conn.Close()
 		return nil, err

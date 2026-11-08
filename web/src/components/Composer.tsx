@@ -2,12 +2,12 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { kindFromFile, uploadBlob } from "../api";
 import { socket } from "../ws";
 import { toast } from "../toast";
-import type { Attachment, Message, User } from "../types";
+import type { Attachment, Message, Sticker, User } from "../types";
 import { formatDuration, formatSize, timeoutLabel } from "../utils";
+import EmojiPicker from "./EmojiPicker";
 import { Icon } from "./Icon";
+import StickerPicker from "./StickerPicker";
 import { Avatar, Spinner } from "./ui";
-
-const EMOJIS = ["😀", "😂", "🥹", "😍", "😎", "🤔", "😭", "🔥", "❤️", "👍", "👎", "🎉", "💀", "🍺", "☕", "🚀"];
 
 function filesFrom(data: DataTransfer | null): File[] {
   if (!data) return [];
@@ -53,7 +53,7 @@ export default function Composer({
   enterToSend: boolean;
   members: User[];
   onCancelReply: () => void;
-  onSend: (text: string, attachmentId?: string, replyTo?: number) => Promise<void>;
+  onSend: (text: string, attachmentId?: string, replyTo?: number, stickerId?: string) => Promise<void>;
   onPoll: () => void;
   timeoutMsLeft?: number;
   timeoutReason?: string;
@@ -63,6 +63,7 @@ export default function Composer({
   const [uploading, setUploading] = useState<{ name: string; percent: number } | null>(null);
   const [sending, setSending] = useState(false);
   const [emojiOpen, setEmojiOpen] = useState(false);
+  const [stickerOpen, setStickerOpen] = useState(false);
   const [recording, setRecording] = useState(false);
   const [seconds, setSeconds] = useState(0);
   const [level, setLevel] = useState(0);
@@ -126,6 +127,7 @@ export default function Composer({
   useEffect(() => {
     setPending([]);
     setEmojiOpen(false);
+    setStickerOpen(false);
     setText("");
     setMention(null);
     if (recorder.current && recorder.current.state !== "inactive") {
@@ -156,6 +158,7 @@ export default function Composer({
       setMention(null);
       onCancelReply();
       setEmojiOpen(false);
+      setStickerOpen(false);
     } catch {
       // Chat already reports the error
     } finally {
@@ -396,6 +399,35 @@ export default function Composer({
     textarea.current?.focus();
   };
 
+  const sendSticker = async (sticker: Sticker) => {
+    setStickerOpen(false);
+    try {
+      await onSend("", undefined, replyTo?.id, sticker.id);
+      onCancelReply();
+    } catch {
+      // Chat already reports the error
+    }
+  };
+
+  useEffect(() => {
+    if (!emojiOpen && !stickerOpen) return;
+    const onDown = (event: MouseEvent) => {
+      const target = event.target as HTMLElement;
+      if (
+        target.closest(".emojiPicker") ||
+        target.closest(".stickerPicker") ||
+        target.closest(".emojiToggle") ||
+        target.closest(".stickerToggle")
+      ) {
+        return;
+      }
+      setEmojiOpen(false);
+      setStickerOpen(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, [emojiOpen, stickerOpen]);
+
   return (
     <div
       className="composerWrap"
@@ -465,13 +497,12 @@ export default function Composer({
         </div>
       )}
 
-      {emojiOpen && (
-        <div className="emojiPop composerEmojiPop">
-          {EMOJIS.map((emoji) => (
-            <button key={emoji} onClick={() => insertEmoji(emoji)}>
-              {emoji}
-            </button>
-          ))}
+      {(emojiOpen || stickerOpen) && (
+        <div className="composerPickerPop">
+          {emojiOpen && <EmojiPicker onPick={insertEmoji} onClose={() => setEmojiOpen(false)} />}
+          {stickerOpen && (
+            <StickerPicker onPick={(sticker) => void sendSticker(sticker)} onClose={() => setStickerOpen(false)} />
+          )}
         </div>
       )}
 
@@ -545,11 +576,24 @@ export default function Composer({
             <Icon name="poll" size={19} />
           </button>
           <button
-            className={`iconBtn${emojiOpen ? " active" : ""}`}
+            className={`iconBtn emojiToggle${emojiOpen ? " active" : ""}`}
             title="Emoji"
-            onClick={() => setEmojiOpen((v) => !v)}
+            onClick={() => {
+              setEmojiOpen((v) => !v);
+              setStickerOpen(false);
+            }}
           >
             <Icon name="smile" size={19} />
+          </button>
+          <button
+            className={`iconBtn stickerToggle${stickerOpen ? " active" : ""}`}
+            title="Stikery"
+            onClick={() => {
+              setStickerOpen((v) => !v);
+              setEmojiOpen(false);
+            }}
+          >
+            <Icon name="sticker" size={19} />
           </button>
 
           <textarea

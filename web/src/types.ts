@@ -38,7 +38,7 @@ export type User = {
   createdAt: number;
 };
 
-export type AttachmentKind = "file" | "image" | "video" | "audio" | "voice";
+export type AttachmentKind = "file" | "image" | "video" | "audio" | "voice" | "sticker";
 
 export type Attachment = {
   id: string;
@@ -52,6 +52,16 @@ export type Attachment = {
 };
 
 export type Reaction = { emoji: string; count: number; mine: boolean };
+
+export type Sticker = {
+  id: string;
+  userId: number;
+  name: string;
+  emoji: string;
+  attachmentId?: string;
+  position: number;
+  createdAt: number;
+};
 
 export type PollOption = { id: number; text: string; votes: number };
 
@@ -79,6 +89,7 @@ export type Message = {
   deleted: boolean;
   pinned: boolean;
   attachment?: Attachment;
+  sticker?: Sticker;
   poll?: Poll;
   replyTo?: number;
   reactions: Reaction[];

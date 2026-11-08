@@ -148,6 +148,11 @@ func main() {
 	mux.HandleFunc("POST /api/uploads/{id}/complete", app.auth(app.completeUpload))
 
 	mux.HandleFunc("GET /api/files/{id}", app.auth(app.serveFile))
+
+	mux.HandleFunc("GET /api/stickers", app.auth(app.listStickers))
+	mux.HandleFunc("POST /api/stickers", app.auth(app.createSticker))
+	mux.HandleFunc("DELETE /api/stickers/{id}", app.auth(app.deleteSticker))
+
 	mux.HandleFunc("/ws", app.hub.ServeWS)
 
 	handler := securityHeaders(cors(recoverer(logRequests(mux))))

@@ -4,6 +4,10 @@ import (
 	"crypto/rand"
 	"database/sql"
 	"encoding/hex"
+	"image"
+	_ "image/gif"
+	_ "image/jpeg"
+	_ "image/png"
 	"io"
 	"mime"
 	"net/http"
@@ -15,6 +19,7 @@ import (
 )
 
 const uploadChunkSize = 4 * 1024 * 1024
+const maxStickerBytes = 4 * 1024 * 1024
 
 func randomID() string {
 	b := make([]byte, 16)
@@ -74,13 +79,21 @@ func (a *App) initUpload(w http.ResponseWriter, r *http.Request, u User) {
 	}
 	kind := in.Kind
 	switch kind {
-	case "image", "video", "audio", "voice", "file":
+	case "image", "video", "audio", "voice", "file", "sticker":
 	default:
 		kind = kindFromMime(in.Mime)
 	}
 	mimeType := in.Mime
 	if mimeType == "" || len(mimeType) > 120 {
 		mimeType = "application/octet-stream"
+	}
+	if kind == "sticker" && !strings.HasPrefix(mimeType, "image/") {
+		writeErr(w, http.StatusBadRequest, "Stiker musí být obrázek (PNG, JPEG nebo WebP)")
+		return
+	}
+	if kind == "sticker" && in.Size > maxStickerBytes {
+		writeErr(w, http.StatusRequestEntityTooLarge, "Stiker může mít max 4 MB")
+		return
 	}
 	if in.Duration < 0 || in.Duration > 60*60*24 {
 		in.Duration = 0
@@ -213,6 +226,27 @@ func (a *App) completeUpload(w http.ResponseWriter, r *http.Request, u User) {
 		})
 		return
 	}
+	if kind == "sticker" {
+		f, err := os.Open(a.uploadTempPath(id))
+		if err != nil {
+			writeErr(w, http.StatusInternalServerError, "Stiker se nepodařilo ověřit")
+			return
+		}
+		cfg, format, err := image.DecodeConfig(f)
+		f.Close()
+		if err != nil || (format != "png" && format != "jpeg" && format != "gif") {
+			_ = os.Remove(a.uploadTempPath(id))
+			_, _ = a.db.sql.Exec("DELETE FROM uploads WHERE id = ?", id)
+			writeErr(w, http.StatusBadRequest, "Stiker musí být platný obrázek (PNG, JPEG nebo GIF)")
+			return
+		}
+		if cfg.Width < 16 || cfg.Height < 16 || cfg.Width > 2048 || cfg.Height > 2048 {
+			_ = os.Remove(a.uploadTempPath(id))
+			_, _ = a.db.sql.Exec("DELETE FROM uploads WHERE id = ?", id)
+			writeErr(w, http.StatusBadRequest, "Stiker musí mít 16–2048 px na každé straně")
+			return
+		}
+	}
 	if err := os.Rename(a.uploadTempPath(id), a.uploadFilePath(id)); err != nil {
 		writeErr(w, http.StatusInternalServerError, "Nepodařilo se dokončit nahrávání")
 		return
@@ -257,7 +291,7 @@ func (a *App) serveFile(w http.ResponseWriter, r *http.Request, u User) {
 		writeErr(w, http.StatusNotFound, "Soubor neexistuje")
 		return
 	}
-	if !u.Admin {
+	if !u.Admin && att.Kind != "sticker" {
 		if channelID.Valid {
 			if _, member, _ := a.db.MemberRole(channelID.Int64, u.ID); !member {
 				writeErr(w, http.StatusForbidden, "K tomuto souboru nemáš přístup")
@@ -283,7 +317,7 @@ func (a *App) serveFile(w http.ResponseWriter, r *http.Request, u User) {
 		_, _ = f.Seek(0, io.SeekStart)
 	}
 	disposition := "attachment"
-	if att.Kind == "image" || att.Kind == "video" || att.Kind == "audio" || att.Kind == "voice" {
+	if att.Kind == "image" || att.Kind == "video" || att.Kind == "audio" || att.Kind == "voice" || att.Kind == "sticker" {
 		disposition = "inline"
 	}
 	cd := mime.FormatMediaType(disposition, map[string]string{"filename": att.Name})

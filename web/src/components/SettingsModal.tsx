@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { api, getServer, removeAvatar, setServer, uploadAvatar } from "../api";
 import { applyTheme } from "../theme";
 import { toast } from "../toast";
+import { requestNotificationPermission } from "../notify";
 import { clearLogs, downloadLogs, getLogs, type LogEntry } from "../logs";
 import type { Invite, User, UserSettings, WSStatus } from "../types";
 import { formatDateTime, playPing, prepareAvatar, validColor } from "../utils";
@@ -355,9 +356,13 @@ export default function SettingsModal({
   };
 
   const toggleNotifications = async (checked: boolean) => {
-    if (checked && "Notification" in window && Notification.permission === "default") {
-      const result = await Notification.requestPermission();
-      if (result !== "granted") toast.info("Notifikace zůstaly zakázané v prohlížeči");
+    if (checked) {
+      const granted = await requestNotificationPermission();
+      if (!granted) {
+        toast.info("Notifikace zůstaly zakázané v systému");
+        patch({ notifications: false });
+        return;
+      }
     }
     patch({ notifications: checked });
   };

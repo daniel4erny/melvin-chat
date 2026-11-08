@@ -132,10 +132,13 @@ func (d *DB) FindOrCreateDM(userID, peerID int64) (Channel, error) {
 func (d *DB) lastPreview(channelID int64) *MessagePreview {
 	var p MessagePreview
 	err := d.sql.QueryRow(`
-		SELECT m.text, m.created_at, u.display_name, COALESCE(a.kind, ''), COALESCE(a.name, '')
+		SELECT m.text, m.created_at, u.display_name,
+		       CASE WHEN m.sticker_id IS NOT NULL AND m.sticker_id <> '' THEN 'sticker' ELSE COALESCE(a.kind, '') END,
+		       CASE WHEN m.sticker_id IS NOT NULL AND m.sticker_id <> '' THEN COALESCE(s.emoji, s.name, '') ELSE COALESCE(a.name, '') END
 		FROM messages m
 		JOIN users u ON u.id = m.user_id
 		LEFT JOIN attachments a ON a.id = m.attachment_id
+		LEFT JOIN stickers s ON s.id = m.sticker_id
 		WHERE m.channel_id = ? AND m.deleted = 0
 		ORDER BY m.id DESC LIMIT 1`, channelID).
 		Scan(&p.Text, &p.CreatedAt, &p.DisplayName, &p.Kind, &p.FileName)

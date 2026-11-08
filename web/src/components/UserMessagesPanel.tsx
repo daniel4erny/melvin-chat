@@ -9,6 +9,7 @@ function snippet(message: Message): string {
   if (message.deleted) return "smazaná zpráva";
   if (message.text.trim()) return message.text.trim();
   if (message.poll) return `Anketa: ${message.poll.question}`;
+  if (message.sticker) return message.sticker.emoji ? `Stiker ${message.sticker.emoji}` : "Stiker";
   if (message.attachment) {
     const att = message.attachment;
     if (att.kind === "voice") return "Hlasovka";

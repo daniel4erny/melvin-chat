@@ -58,7 +58,8 @@ export type IconName =
   | "monitor"
   | "headphones"
   | "phoneCall"
-  | "sparkles";
+  | "sparkles"
+  | "sticker";
 
 const paths: Record<IconName, ReactNode> = {
   hash: <><path d="M4 9h16M4 15h16M10 3 8 21M16 3l-2 18" /></>,
@@ -75,6 +76,7 @@ const paths: Record<IconName, ReactNode> = {
   x: <path d="M18 6 6 18M6 6l12 12" />,
   trash: <><path d="M3 6h18M8 6V4h8v2M19 6l-1 15H6L5 6M10 11v6M14 11v6" /></>,
   smile: <><circle cx="12" cy="12" r="10" /><path d="M8 14s1.5 2 4 2 4-2 4-2M9 9h.01M15 9h.01" /></>,
+  sticker: <><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-7l-5-5Z" /><path d="M14 3v5h5" /><path d="M9 13h.01M15 13h.01M9.5 16.5s1 1 2.5 1 2.5-1 2.5-1" /></>,
   poll: <><path d="M18 20V10M12 20V4M6 20v-6" /></>,
   image: <><rect x="3" y="3" width="18" height="18" rx="2" /><circle cx="8.5" cy="8.5" r="1.5" /><path d="m21 15-5-5L5 21" /></>,
   file: <><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z" /><path d="M14 2v6h6" /></>,

@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { fileURL } from "../api";
 import { toast } from "../toast";
-import type { Message, Poll, User } from "../types";
+import type { Message, Poll, Sticker, User } from "../types";
 import { formatDateTime, formatDuration, formatSize, formatTime } from "../utils";
+import EmojiPicker from "./EmojiPicker";
 import { Icon } from "./Icon";
 import { Avatar, Spinner } from "./ui";
 
@@ -45,6 +46,38 @@ function renderText(text: string, onMention?: (username: string) => void): React
     });
   });
   return out;
+}
+
+function StickerView({ sticker }: { sticker: Sticker }) {
+  if (sticker.emoji) {
+    return (
+      <div className="messageStickerEmoji" title={sticker.name}>
+        {sticker.emoji}
+      </div>
+    );
+  }
+  if (!sticker.attachmentId) return null;
+  return (
+    <img
+      className="messageStickerImage"
+      src={fileURL(sticker.attachmentId)}
+      alt={sticker.name || "Stiker"}
+      loading="lazy"
+    />
+  );
+}
+
+// Messages that contain nothing but emoji are rendered extra large, the same
+// way WhatsApp and Discord do it.
+function emojiOnly(text: string): "" | "jumbo" | "big" {
+  const trimmed = text.trim();
+  if (!trimmed || trimmed.length > 32) return "";
+  if (!/\p{Extended_Pictographic}/u.test(trimmed)) return "";
+  if (/[\p{L}\p{N}]/u.test(trimmed)) return "";
+  const units = Array.from(trimmed.replace(/[\uFE0F\u200D]/g, ""));
+  if (units.length === 1) return "jumbo";
+  if (units.length <= 3) return "big";
+  return "";
 }
 
 function PollCard({
@@ -301,6 +334,7 @@ export default function MessageItem({
   onPin?: (message: Message) => void;
 }) {
   const [picker, setPicker] = useState(false);
+  const [fullPicker, setFullPicker] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [touchActive, setTouchActive] = useState(false);
   const [editing, setEditing] = useState(false);
@@ -463,7 +497,10 @@ export default function MessageItem({
           <button className="replyQuote" onClick={() => jumpTo(replyMessage.id)}>
             <Icon name="reply" size={12} />
             <strong>{replyMessage.user.displayName}</strong>
-            <span>{replyMessage.text || replyMessage.attachment?.name || "zpráva"}</span>
+            <span>
+              {replyMessage.text ||
+                (replyMessage.sticker ? "stiker" : replyMessage.attachment?.name || "zpráva")}
+            </span>
           </button>
         )}
 
@@ -511,8 +548,13 @@ export default function MessageItem({
                 </div>
               </div>
             ) : (
-              message.text && <div className="messageText">{renderText(message.text, onMention)}</div>
+              message.text && (
+                <div className={`messageText${emojiOnly(message.text) ? ` emoji-${emojiOnly(message.text)}` : ""}`}>
+                  {renderText(message.text, onMention)}
+                </div>
+              )
             )}
+            {message.sticker && <StickerView sticker={message.sticker} />}
             <AttachmentView message={message} />
             {message.poll && (
               <PollCard poll={message.poll} me={me} onVote={onVote} onClose={onClosePoll} />
@@ -543,7 +585,10 @@ export default function MessageItem({
             title="Reagovat"
             aria-label="Reagovat"
             onClick={() => {
-              setPicker((open) => !open);
+              setPicker((open) => {
+                if (open) setFullPicker(false);
+                return !open;
+              });
               setMenuOpen(false);
             }}
           >
@@ -637,7 +682,7 @@ export default function MessageItem({
         </div>
       )}
 
-      {picker && (
+      {picker && !fullPicker && (
         <div className="emojiPop messageEmojiPop">
           {QUICK_REACTIONS.map((emoji) => (
             <button
@@ -650,6 +695,31 @@ export default function MessageItem({
               {emoji}
             </button>
           ))}
+          <button
+            className="moreEmoji"
+            title="Všechna emoji"
+            aria-label="Všechna emoji"
+            onClick={() => setFullPicker(true)}
+          >
+            <Icon name="plus" size={16} />
+          </button>
+        </div>
+      )}
+
+      {picker && fullPicker && (
+        <div className="messageEmojiFull">
+          <EmojiPicker
+            align="right"
+            onClose={() => {
+              setFullPicker(false);
+              setPicker(false);
+            }}
+            onPick={(emoji) => {
+              onReact(message, emoji);
+              setFullPicker(false);
+              setPicker(false);
+            }}
+          />
         </div>
       )}
     </div>

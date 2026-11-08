@@ -37,6 +37,7 @@ type Message struct {
 	Deleted    bool        `json:"deleted"`
 	Pinned     bool        `json:"pinned"`
 	Attachment *Attachment `json:"attachment,omitempty"`
+	Sticker    *Sticker    `json:"sticker,omitempty"`
 	Poll       *Poll       `json:"poll,omitempty"`
 	ReplyTo    *int64      `json:"replyTo,omitempty"`
 	Reactions  []Reaction  `json:"reactions"`
@@ -49,6 +50,7 @@ type baseMessage struct {
 	text         string
 	attachmentID sql.NullString
 	pollID       sql.NullInt64
+	stickerID    sql.NullString
 	replyTo      sql.NullInt64
 	createdAt    int64
 	editedAt     sql.NullInt64
@@ -58,7 +60,7 @@ type baseMessage struct {
 }
 
 const messageSelect = `
-	SELECT m.id, m.channel_id, m.user_id, m.text, m.attachment_id, m.poll_id, m.reply_to,
+	SELECT m.id, m.channel_id, m.user_id, m.text, m.attachment_id, m.poll_id, m.sticker_id, m.reply_to,
 	       m.created_at, m.edited_at, m.deleted, m.pinned,
 	       u.username, u.display_name, u.avatar_color, u.bio, u.is_admin,
 	       u.status_emoji, u.status_text, u.banned, u.ban_reason, u.banned_until,
@@ -73,7 +75,7 @@ func scanBaseMessage(s scanner) (baseMessage, error) {
 	var settings string
 	var timeoutUntil sql.NullInt64
 	err := s.Scan(
-		&b.id, &b.channelID, &b.userID, &b.text, &b.attachmentID, &b.pollID, &b.replyTo,
+		&b.id, &b.channelID, &b.userID, &b.text, &b.attachmentID, &b.pollID, &b.stickerID, &b.replyTo,
 		&b.createdAt, &b.editedAt, &b.deleted, &b.pinned,
 		&b.user.Username, &b.user.DisplayName, &b.user.AvatarColor, &b.user.Bio, &admin,
 		&b.user.StatusEmoji, &b.user.StatusText, &banned, &b.user.BanReason, &bannedUntil,
@@ -129,6 +131,7 @@ func (d *DB) hydrateMessages(rows []baseMessage, viewerID int64) ([]Message, err
 	msgIDs := make([]int64, 0, len(rows))
 	attachmentIDs := []string{}
 	pollIDs := []int64{}
+	stickerIDs := []string{}
 	for _, b := range rows {
 		msgIDs = append(msgIDs, b.id)
 		if b.attachmentID.Valid && b.attachmentID.String != "" {
@@ -137,6 +140,14 @@ func (d *DB) hydrateMessages(rows []baseMessage, viewerID int64) ([]Message, err
 		if b.pollID.Valid {
 			pollIDs = append(pollIDs, b.pollID.Int64)
 		}
+		if b.stickerID.Valid && b.stickerID.String != "" {
+			stickerIDs = append(stickerIDs, b.stickerID.String)
+		}
+	}
+
+	stickers, err := d.loadStickers(stickerIDs)
+	if err != nil {
+		return nil, err
 	}
 
 	attachments := map[string]*Attachment{}
@@ -210,6 +221,9 @@ func (d *DB) hydrateMessages(rows []baseMessage, viewerID int64) ([]Message, err
 		} else {
 			if b.attachmentID.Valid {
 				m.Attachment = attachments[b.attachmentID.String]
+			}
+			if b.stickerID.Valid {
+				m.Sticker = stickers[b.stickerID.String]
 			}
 			if b.pollID.Valid {
 				m.Poll = polls[b.pollID.Int64]
@@ -365,8 +379,8 @@ func (d *DB) AttachmentAvailable(id string, userID int64) (bool, error) {
 
 var errMessageEmpty = errors.New("Zpráva je prázdná")
 
-func (d *DB) CreateMessage(channelID, userID int64, text string, attachmentID *string, pollID *int64, replyTo *int64) (Message, error) {
-	if strings.TrimSpace(text) == "" && attachmentID == nil && pollID == nil {
+func (d *DB) CreateMessage(channelID, userID int64, text string, attachmentID *string, pollID *int64, stickerID *string, replyTo *int64) (Message, error) {
+	if strings.TrimSpace(text) == "" && attachmentID == nil && pollID == nil && stickerID == nil {
 		return Message{}, errMessageEmpty
 	}
 	tx, err := d.sql.Begin()
@@ -384,8 +398,8 @@ func (d *DB) CreateMessage(channelID, userID int64, text string, attachmentID *s
 		}
 	}
 	res, err := tx.Exec(
-		"INSERT INTO messages (channel_id, user_id, text, attachment_id, poll_id, reply_to, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-		channelID, userID, text, attachmentID, pollID, replyTo, nowMS(),
+		"INSERT INTO messages (channel_id, user_id, text, attachment_id, poll_id, sticker_id, reply_to, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+		channelID, userID, text, attachmentID, pollID, stickerID, replyTo, nowMS(),
 	)
 	if err != nil {
 		return Message{}, err
@@ -606,6 +620,7 @@ func (a *App) sendMessage(w http.ResponseWriter, r *http.Request, u User) {
 	var in struct {
 		Text         string  `json:"text"`
 		AttachmentID *string `json:"attachmentId"`
+		StickerID    *string `json:"stickerId"`
 		ReplyTo      *int64  `json:"replyTo"`
 	}
 	if err := readJSON(r, &in); err != nil {
@@ -624,7 +639,13 @@ func (a *App) sendMessage(w http.ResponseWriter, r *http.Request, u User) {
 			return
 		}
 	}
-	msg, err := a.db.CreateMessage(channelID, u.ID, in.Text, in.AttachmentID, nil, in.ReplyTo)
+	if in.StickerID != nil {
+		if _, err := a.db.StickerForSend(*in.StickerID, u.ID); err != nil {
+			writeErr(w, http.StatusBadRequest, "Stiker není dostupný")
+			return
+		}
+	}
+	msg, err := a.db.CreateMessage(channelID, u.ID, in.Text, in.AttachmentID, nil, in.StickerID, in.ReplyTo)
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
